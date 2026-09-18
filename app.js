@@ -87,8 +87,11 @@
     function once() {
       attempt++;
       var status = 0;
-      // 1回の通信は最長25秒（確定は40秒）で打ち切って再試行する。打ち切りは「timeout」として記録
-      var limit = action === 'confirm' ? 40000 : 25000;
+      // GAS の Web アプリは、ときどき1回の通信が 10〜35 秒かかったり 404 を返したりする（Google 側の揺らぎ。2026-09-18 実測）。
+      // 遅い回はランダムなので、読み取り系は1回目を8秒で見切って出し直すほうが速い（2回目以降は 15秒・25秒と長く待つ）。
+      // 書き込み系は、サーバー側に二重実行防止（reqId）があるが、安全側に倒して長く待つ（確定40秒、ほか25秒）。
+      var isWrite = WRITE_ACTIONS.indexOf(action) >= 0;
+      var limit = isWrite ? (action === 'confirm' ? 40000 : 25000) : [8000, 15000, 25000, 25000][attempt - 1];
       var timedOut = false;
       var timer = ctl ? setTimeout(function () { timedOut = true; ctl.abort(); }, limit) : null;
       return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: json, redirect: 'follow', signal: ctl ? ctl.signal : undefined })
