@@ -7,6 +7,24 @@
   var qs = new URLSearchParams(location.search);
   var PAGE = qs.get('p') || 'book';
   var DEV = { key: qs.get('dev') || '', sub: qs.get('sub') || '' };
+  var DEBUG = qs.get('debug') === '1';
+  var API_LOG = [];
+  var T0 = Date.now();
+  function logApi(entry) {
+    API_LOG.push(entry);
+    var t = entry.timing && entry.timing.marks ? entry.timing.marks.map(function (m) { return m.label + ' ' + m.ms; }).join(' / ') : '';
+    console.log('[api] ' + entry.action + ' 試行' + entry.attempt + ' 往復' + entry.ms + 'ms' + (entry.timing ? ' GAS内' + entry.timing.totalMs + 'ms（' + t + '）' : '') + (entry.error ? ' ERROR ' + entry.error : ''));
+    if (DEBUG) renderDebug();
+  }
+  function renderDebug() {
+    var box = document.getElementById('dbg');
+    if (!box) { box = document.createElement('div'); box.id = 'dbg'; box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99;background:rgba(0,0,0,.8);color:#9f9;font:11px/1.4 monospace;padding:6px 8px;max-height:40vh;overflow:auto;white-space:pre-wrap'; document.body.appendChild(box); }
+    box.textContent = API_LOG.slice(-8).map(function (e) {
+      var gas = e.timing ? ' gas' + e.timing.totalMs : '';
+      var marks = e.timing && e.timing.marks ? ' [' + e.timing.marks.filter(function (m) { return m.ms >= 100; }).map(function (m) { return m.label + m.ms; }).join(' ') + ']' : '';
+      return '+' + ((e.at - T0) / 1000).toFixed(1) + 's ' + e.action + (e.attempt > 1 ? ' x' + e.attempt : '') + ' 往復' + e.ms + gas + marks + (e.error ? ' !' + e.error : '');
+    }).join('\n');
+  }
   var S = { idToken: '', linked: [], current: null, contactText: '', deadlineText: '', book: null };
   var WD = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -39,15 +57,20 @@
     if (WRITE_ACTIONS.indexOf(action) >= 0) body.reqId = String(Date.now()) + '-' + Math.random().toString(36).substring(2, 10);
     var json = JSON.stringify(body);
     var attempt = 0;
+    var t0 = Date.now();
     function once() {
       attempt++;
       return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: json, redirect: 'follow' })
         .then(function (r) { return r.text(); })
         .then(function (t) {
-          try { return JSON.parse(t); } catch (e) { throw new Error('応答が読めません（HTTP）'); }
+          var res;
+          try { res = JSON.parse(t); } catch (e) { throw new Error('応答が読めません（HTTP）'); }
+          logApi({ at: Date.now(), action: action, attempt: attempt, ms: Date.now() - t0, timing: res._timing || null, error: res.ok ? '' : res.error });
+          return res;
         })
         .catch(function (e) {
           if (attempt < 4) return new Promise(function (res) { setTimeout(res, 1000 * Math.pow(2, attempt - 1)); }).then(once); // 1秒→2秒→4秒
+          logApi({ at: Date.now(), action: action, attempt: attempt, ms: Date.now() - t0, timing: null, error: e.message });
           return { ok: false, error: '通信に失敗しました。電波の良いところでもう一度お試しください（' + e.message + '）' };
         });
     }
@@ -102,23 +125,26 @@
       S.idToken = liff.getIDToken() || '';
     });
     p.then(function () {
+      console.log('[app] liff 準備 ' + (Date.now() - T0) + 'ms');
       var saved = '';
       try { saved = localStorage.getItem('beyond.student') || ''; } catch (e) { }
-      return api('init', { studentId: saved });
+      return api('init', { studentId: saved, page: PAGE });
     }).then(function (r) {
       if (!r.ok) { screenError(r.error); return; }
       S.linked = r.linked; S.current = r.current; S.contactText = r.contactText; S.deadlineText = r.deadlineText;
-      route();
+      route({ book: r.book, list: r.list, count: r.count });
     }).catch(function (e) { screenError('もう一度 LINE から開いてください（' + e.message + '）'); });
   }
 
-  function route() {
+  /** pre: init に同梱されていた最初の画面のデータ（あれば往復を省く） */
+  function route(pre) {
+    pre = pre || {};
     if (PAGE === 'contact') return screenContact();
     if (!S.current) return screenRegister(false);
     if (S.current.status === '退会') return screenError('ご利用できる生徒さんがいません。お問い合わせください。');
-    if (PAGE === 'list') return screenList();
-    if (PAGE === 'count') return screenCount();
-    return startBooking(null);
+    if (PAGE === 'list') return screenList(pre.list);
+    if (PAGE === 'count') return screenCount(pre.count);
+    return startBooking(null, pre.book);
   }
 
   function screenError(text) {
@@ -162,9 +188,9 @@
   }
 
   // ---------- 残り回数 ----------
-  function screenCount() {
-    busy('残り回数', '読み込み中…');
-    api('count', { studentId: S.current.id }).then(function (r) {
+  function screenCount(pre) {
+    if (!pre) busy('残り回数', '読み込み中…');
+    (pre ? Promise.resolve(pre) : api('count', { studentId: S.current.id })).then(function (r) {
       if (!r.ok) return screenError(r.error);
       var s = r.student;
       render('残り回数', [
@@ -191,9 +217,9 @@
   }
 
   // ---------- 予約一覧（画面⑥） ----------
-  function screenList() {
-    busy('予約の確認・振替', '読み込み中…');
-    api('list', { studentId: S.current.id }).then(function (r) {
+  function screenList(pre) {
+    if (!pre) busy('予約の確認・振替', '読み込み中…');
+    (pre ? Promise.resolve(pre) : api('list', { studentId: S.current.id })).then(function (r) {
       if (!r.ok) return screenError(r.error);
       S.current = r.student;
       var items = r.bookings.map(function (b) {
@@ -231,15 +257,15 @@
   }
 
   // ---------- 予約の流れ（画面②〜⑤） ----------
-  function startBooking(original) {
-    S.book = { mode: original ? '振替' : '通常', original: original, teacherIds: [], month: '', months: [], wishDates: [], wishBands: [], rows: [], unused: [], n: 0, days: {}, cal: {} };
-    screenTeachers();
+  function startBooking(original, pre) {
+    S.book = { mode: original ? '振替' : '通常', original: original, teacherIds: [], month: '', months: [], wishDates: [], wishBands: [], rows: [], unused: [], n: 0, days: {}, cal: {}, pre: null };
+    screenTeachers(pre);
   }
 
-  function screenTeachers() {
+  function screenTeachers(pre) {
     var B = S.book;
-    busy(B.mode === '振替' ? '振替：先生を選ぶ' : 'レッスン予約', '読み込み中…');
-    api('teachers', { studentId: S.current.id, originalId: B.original ? B.original.id : '' }).then(function (r) {
+    if (!pre) busy(B.mode === '振替' ? '振替：先生を選ぶ' : 'レッスン予約', '読み込み中…');
+    (pre ? Promise.resolve(pre) : api('teachers', { studentId: S.current.id, originalId: B.original ? B.original.id : '' })).then(function (r) {
       if (!r.ok) return screenError(r.error);
       B.teachers = r.teachers; B.months = r.months; B.releaseDay = r.releaseDay; B.releaseTime = r.releaseTime;
       if (!B.month) B.month = B.original ? B.original.date.substring(0, 7) : r.months[0];
@@ -247,19 +273,35 @@
       if (!B.teacherIds.length) B.teacherIds = r.preselected.slice();
       if (!r.teachers.length) return screenError('ご予約いただける先生の出勤がありません。お問い合わせください。');
       drawTeachers();
+      prefetchCalendar();
     });
+  }
+
+  /** 先生選択の裏で、その月の空き状況を先に取り始める（選び終わるころには届いている） */
+  var prefetchTimer = null;
+  function calKey() { var B = S.book; return B.teacherIds.slice().sort().join(',') + '|' + B.month + '|' + (B.original ? B.original.id : ''); }
+  function prefetchCalendar() {
+    var B = S.book;
+    if (!B.teacherIds.length) return;
+    var key = calKey();
+    if (B.pre && B.pre.key === key) return;
+    B.pre = { key: key, promise: api('calendar', { studentId: S.current.id, teacherIds: B.teacherIds.slice(), month: B.month, originalId: B.original ? B.original.id : '' }) };
+  }
+  function schedulePrefetch() {
+    clearTimeout(prefetchTimer);
+    prefetchTimer = setTimeout(prefetchCalendar, 400);
   }
   function drawTeachers() {
     var B = S.book;
     var all = B.teachers.every(function (t) { return B.teacherIds.indexOf(t.id) >= 0; });
     var cards = [h('div', { class: 'card' + (all ? ' sel' : ''), onclick: function () {
-      B.teacherIds = all ? [] : B.teachers.map(function (t) { return t.id; }); drawTeachers();
+      B.teacherIds = all ? [] : B.teachers.map(function (t) { return t.id; }); drawTeachers(); schedulePrefetch();
     } }, [h('div', { class: 'row' }, [h('div', { class: 'avatar', style: 'background:#5b8bb8' }, ['✦']), h('div', { class: 'grow' }, [h('h3', {}, ['どの先生でもOK']), h('div', { class: 'muted small' }, ['全員を選んだ状態になります'])]), h('div', { class: 'check' }, [all ? '✓' : ''])])])];
     B.teachers.forEach(function (t) {
       var on = B.teacherIds.indexOf(t.id) >= 0;
       cards.push(h('div', { class: 'card' + (on ? ' sel' : ''), onclick: function () {
         if (on) B.teacherIds = B.teacherIds.filter(function (x) { return x !== t.id; }); else B.teacherIds.push(t.id);
-        drawTeachers();
+        drawTeachers(); schedulePrefetch();
       } }, [h('div', { class: 'row' }, [
         h('div', { class: 'avatar' }, [t.name.charAt(0)]),
         h('div', { class: 'grow' }, [h('h3', {}, [t.name + '先生']), h('div', { class: 'muted small' }, [t.workdays + 'に出勤']), t.message ? h('div', { class: 'small', style: 'color:#2b5d8c' }, ['「' + t.message + '」']) : null]),
@@ -276,9 +318,13 @@
 
   function screenCalendar() {
     var B = S.book;
+    var key = calKey();
+    var promise = (B.pre && B.pre.key === key) ? B.pre.promise
+      : api('calendar', { studentId: S.current.id, teacherIds: B.teacherIds.slice(), month: B.month, originalId: B.original ? B.original.id : '' });
+    if (!(B.pre && B.pre.key === key)) B.pre = { key: key, promise: promise };
     busy('空き状況', '読み込み中…');
-    api('calendar', { studentId: S.current.id, teacherIds: B.teacherIds, month: B.month, originalId: B.original ? B.original.id : '' }).then(function (r) {
-      if (!r.ok) return screenError(r.error);
+    promise.then(function (r) {
+      if (!r.ok) { B.pre = null; return screenError(r.error); }
       B.cal[B.month] = r;
       drawCalendar();
     });
