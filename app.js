@@ -41,13 +41,13 @@
     var attempt = 0;
     function once() {
       attempt++;
-      return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: json })
+      return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: json, redirect: 'follow' })
         .then(function (r) { return r.text(); })
         .then(function (t) {
           try { return JSON.parse(t); } catch (e) { throw new Error('応答が読めません（HTTP）'); }
         })
         .catch(function (e) {
-          if (attempt < 3) return new Promise(function (res) { setTimeout(res, 1500 * attempt); }).then(once);
+          if (attempt < 4) return new Promise(function (res) { setTimeout(res, 1000 * Math.pow(2, attempt - 1)); }).then(once); // 1秒→2秒→4秒
           return { ok: false, error: '通信に失敗しました。電波の良いところでもう一度お試しください（' + e.message + '）' };
         });
     }
