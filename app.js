@@ -19,8 +19,14 @@
   }
   function renderDebug() {
     var box = document.getElementById('dbg');
-    if (!box) { box = document.createElement('div'); box.id = 'dbg'; box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99;background:rgba(0,0,0,.8);color:#9f9;font:11px/1.4 monospace;padding:6px 8px;max-height:40vh;overflow:auto;white-space:pre-wrap'; document.body.appendChild(box); }
-    box.textContent = API_LOG.slice(-8).map(function (e) {
+    if (!box) {
+      box = document.createElement('div'); box.id = 'dbg';
+      box.style.cssText = 'position:fixed;right:4px;top:4px;z-index:99;background:rgba(0,0,0,.8);color:#9f9;font:10px/1.4 monospace;padding:4px 6px;max-width:70vw;max-height:45vh;overflow:auto;white-space:pre-wrap;border-radius:6px';
+      box.addEventListener('click', function () { box.dataset.open = box.dataset.open === '1' ? '' : '1'; renderDebug(); });
+      document.body.appendChild(box);
+    }
+    var open = box.dataset.open === '1';
+    box.textContent = (open ? '▼ 計測（タップで縮小）\n' : '▶ 計測（タップで展開）\n') + API_LOG.slice(open ? -8 : -1).map(function (e) {
       var gas = e.timing ? ' gas' + e.timing.totalMs : '';
       var marks = e.timing && e.timing.marks ? ' [' + e.timing.marks.filter(function (m) { return m.ms >= 100; }).map(function (m) { return m.label + m.ms; }).join(' ') + ']' : '';
       var retry = e.attempt > 1 ? ' 再試行' + (e.attempt - 1) + '回(' + (e.fails || []).join(',') + ')' : ' 再試行0';
