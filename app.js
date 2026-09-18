@@ -13,7 +13,8 @@
   function logApi(entry) {
     API_LOG.push(entry);
     var t = entry.timing && entry.timing.marks ? entry.timing.marks.map(function (m) { return m.label + ' ' + m.ms; }).join(' / ') : '';
-    console.log('[api] ' + entry.action + ' 試行' + entry.attempt + ' 往復' + entry.ms + 'ms' + (entry.timing ? ' GAS内' + entry.timing.totalMs + 'ms（' + t + '）' : '') + (entry.error ? ' ERROR ' + entry.error : ''));
+    var fails = entry.fails && entry.fails.length ? ' 失敗:' + entry.fails.join(',') : '';
+    console.log('[api] ' + entry.action + (entry.bg ? '(先読み)' : '') + ' 試行' + entry.attempt + fails + ' 往復' + entry.ms + 'ms' + (entry.timing ? ' GAS内' + entry.timing.totalMs + 'ms（' + t + '）' : '') + (entry.error ? ' ERROR ' + entry.error : ''));
     if (DEBUG) renderDebug();
   }
   function renderDebug() {
@@ -22,7 +23,9 @@
     box.textContent = API_LOG.slice(-8).map(function (e) {
       var gas = e.timing ? ' gas' + e.timing.totalMs : '';
       var marks = e.timing && e.timing.marks ? ' [' + e.timing.marks.filter(function (m) { return m.ms >= 100; }).map(function (m) { return m.label + m.ms; }).join(' ') + ']' : '';
-      return '+' + ((e.at - T0) / 1000).toFixed(1) + 's ' + e.action + (e.attempt > 1 ? ' x' + e.attempt : '') + ' 往復' + e.ms + gas + marks + (e.error ? ' !' + e.error : '');
+      var retry = e.attempt > 1 ? ' 再試行' + (e.attempt - 1) + '回(' + (e.fails || []).join(',') + ')' : ' 再試行0';
+      var has404 = (e.fails || []).some(function (f) { return f.indexOf('404') >= 0; }) ? ' 404あり' : '';
+      return '+' + ((e.at - T0) / 1000).toFixed(1) + 's ' + e.action + (e.bg ? '(先読み)' : '') + retry + has404 + ' 往復' + e.ms + gas + marks + (e.error ? ' !' + e.error : '');
     }).join('\n');
   }
   var S = { idToken: '', linked: [], current: null, contactText: '', deadlineText: '', book: null };
@@ -50,31 +53,55 @@
   function given() { return S.current ? S.current.given : ''; }
 
   var WRITE_ACTIONS = ['register', 'confirm', 'cancel'];
-  function api(action, params) {
+  // 本番の呼び出し（画面が待っているもの）と先読みを分ける。
+  // 先読みは同時に1本まで。本番の呼び出しが始まったら先読みは中断し、本番が終わるまで新しい先読みは待つ。
+  var fgInflight = 0;
+  var bgCtl = null;
+  var fgWaiters = [];
+  function fgDone() { fgInflight--; if (fgInflight <= 0) { fgInflight = 0; var ws = fgWaiters; fgWaiters = []; ws.forEach(function (f) { f(); }); } }
+  function whenIdle() { return fgInflight > 0 ? new Promise(function (res) { fgWaiters.push(res); }) : Promise.resolve(); }
+
+  function api(action, params, opts) {
+    var bg = !!(opts && opts.background);
     var body = { action: action, params: params || {}, idToken: S.idToken };
     if (DEV.key) { body.devKey = DEV.key; body.devSub = DEV.sub; }
     // 書き込み系は同じ reqId で再試行する（サーバー側で二重実行を防ぐ）
     if (WRITE_ACTIONS.indexOf(action) >= 0) body.reqId = String(Date.now()) + '-' + Math.random().toString(36).substring(2, 10);
     var json = JSON.stringify(body);
-    var attempt = 0;
+    var attempt = 0, fails = [];
     var t0 = Date.now();
+    var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    if (bg) {
+      if (bgCtl) { try { bgCtl.abort(); } catch (e) { } }   // 先読みは同時に1本
+      bgCtl = ctl;
+    } else {
+      if (bgCtl) { try { bgCtl.abort(); } catch (e) { } bgCtl = null; }   // 本番が始まったら先読みを中断
+      fgInflight++;
+    }
     function once() {
       attempt++;
-      return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: json, redirect: 'follow' })
-        .then(function (r) { return r.text(); })
+      var status = 0;
+      return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: json, redirect: 'follow', signal: ctl ? ctl.signal : undefined })
+        .then(function (r) { status = r.status; return r.text(); })
         .then(function (t) {
           var res;
-          try { res = JSON.parse(t); } catch (e) { throw new Error('応答が読めません（HTTP）'); }
-          logApi({ at: Date.now(), action: action, attempt: attempt, ms: Date.now() - t0, timing: res._timing || null, error: res.ok ? '' : res.error });
+          try { res = JSON.parse(t); } catch (e) { throw new Error(status ? 'HTTP' + status : 'HTML'); }
+          logApi({ at: Date.now(), action: action, bg: bg, attempt: attempt, fails: fails, ms: Date.now() - t0, timing: res._timing || null, error: res.ok ? '' : res.error });
           return res;
         })
         .catch(function (e) {
+          if (e && e.name === 'AbortError') { logApi({ at: Date.now(), action: action, bg: bg, attempt: attempt, fails: fails, ms: Date.now() - t0, timing: null, error: '中断' }); throw e; }
+          fails.push(e.message === 'Failed to fetch' ? 'net' : e.message);
           if (attempt < 4) return new Promise(function (res) { setTimeout(res, 1000 * Math.pow(2, attempt - 1)); }).then(once); // 1秒→2秒→4秒
-          logApi({ at: Date.now(), action: action, attempt: attempt, ms: Date.now() - t0, timing: null, error: e.message });
-          return { ok: false, error: '通信に失敗しました。電波の良いところでもう一度お試しください（' + e.message + '）' };
+          logApi({ at: Date.now(), action: action, bg: bg, attempt: attempt, fails: fails, ms: Date.now() - t0, timing: null, error: e.message });
+          return { ok: false, error: '通信に失敗しました。電波の良いところでもう一度お試しください（' + fails.join(',') + '）' };
         });
     }
-    return once();
+    var start = bg ? whenIdle() : Promise.resolve();
+    var p = start.then(once);
+    if (!bg) p.then(fgDone, fgDone);
+    else p.then(function () { if (bgCtl === ctl) bgCtl = null; }, function () { if (bgCtl === ctl) bgCtl = null; });
+    return p;
   }
 
   // ---------- 画面の骨組み ----------
@@ -285,7 +312,10 @@
     if (!B.teacherIds.length) return;
     var key = calKey();
     if (B.pre && B.pre.key === key) return;
-    B.pre = { key: key, promise: api('calendar', { studentId: S.current.id, teacherIds: B.teacherIds.slice(), month: B.month, originalId: B.original ? B.original.id : '' }) };
+    var pre = { key: key, promise: null };
+    pre.promise = api('calendar', { studentId: S.current.id, teacherIds: B.teacherIds.slice(), month: B.month, originalId: B.original ? B.original.id : '' }, { background: true })
+      .catch(function () { if (B.pre === pre) B.pre = null; return null; });
+    B.pre = pre;
   }
   function schedulePrefetch() {
     clearTimeout(prefetchTimer);
@@ -324,6 +354,13 @@
     if (!(B.pre && B.pre.key === key)) B.pre = { key: key, promise: promise };
     busy('空き状況', '読み込み中…');
     promise.then(function (r) {
+      if (!r) {   // 先読みが中断されていたら本番で取り直す
+        B.pre = null;
+        return api('calendar', { studentId: S.current.id, teacherIds: B.teacherIds.slice(), month: B.month, originalId: B.original ? B.original.id : '' }).then(function (r2) {
+          if (!r2.ok) return screenError(r2.error);
+          B.cal[B.month] = r2; drawCalendar();
+        });
+      }
       if (!r.ok) { B.pre = null; return screenError(r.error); }
       B.cal[B.month] = r;
       drawCalendar();
