@@ -241,7 +241,7 @@
     busy(B.mode === '振替' ? '振替：先生を選ぶ' : 'レッスン予約', '読み込み中…');
     api('teachers', { studentId: S.current.id, originalId: B.original ? B.original.id : '' }).then(function (r) {
       if (!r.ok) return screenError(r.error);
-      B.teachers = r.teachers; B.months = r.months;
+      B.teachers = r.teachers; B.months = r.months; B.releaseDay = r.releaseDay; B.releaseTime = r.releaseTime;
       if (!B.month) B.month = B.original ? B.original.date.substring(0, 7) : r.months[0];
       if (r.months.indexOf(B.month) < 0) B.month = r.months[0];
       if (!B.teacherIds.length) B.teacherIds = r.preselected.slice();
@@ -328,7 +328,7 @@
       h('div', { class: 'legend' }, ['○ 空きあり　△ 残りわずか　× 満席　印なし＝出勤なし']),
       h('div', { class: 'muted small' }, ['時間帯の希望（任意）']),
       h('div', { class: 'chips' }, bands),
-      B.months.length === 1 ? h('p', { class: 'muted small' }, ['翌月分の予約は ' + B.cal[B.month].releaseDay + '日から受け付けます']) : null,
+      B.months.length === 1 ? h('p', { class: 'muted small' }, ['翌月分の予約は ' + B.releaseDay + '日 ' + B.releaseTime + ' から受け付けます']) : null,
     ];
     render(title, body, [
       h('button', { class: 'btn', disabled: !selected.length || !!r.blocked, onclick: screenProposal }, ['この希望から提案してもらう']),
