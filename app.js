@@ -158,6 +158,9 @@
   }
 
   // ---------- 起動 ----------
+  // 注意：GAS の Web アプリへ同時に複数の通信を出さないこと。
+  // 同時に出すと Google 側が 404 や数十秒の遅延を返すことを実測で確認している（2026-09-18）。
+  // 起動時の「空撃ち」や、本番の呼び出しと重なる先読みはしない。
   function start() {
     var p = DEV.key ? Promise.resolve() : liff.init({ liffId: CFG.liffId }).then(function () {
       if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return new Promise(function () { }); }
@@ -165,6 +168,7 @@
     });
     p.then(function () {
       console.log('[app] liff 準備 ' + (Date.now() - T0) + 'ms');
+      logApi({ at: Date.now(), action: 'liff.init', bg: false, attempt: 1, fails: [], ms: Date.now() - T0, timing: null, error: '' });
       var saved = '';
       try { saved = localStorage.getItem('beyond.student') || ''; } catch (e) { }
       return api('init', { studentId: saved, page: PAGE });
