@@ -31,12 +31,27 @@
   function addMonths(ym, n) { var p = ym.split('-'); var d = new Date(+p[0], +p[1] - 1 + n, 1); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2); }
   function given() { return S.current ? S.current.given : ''; }
 
+  var WRITE_ACTIONS = ['register', 'confirm', 'cancel'];
   function api(action, params) {
     var body = { action: action, params: params || {}, idToken: S.idToken };
     if (DEV.key) { body.devKey = DEV.key; body.devSub = DEV.sub; }
-    return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body) })
-      .then(function (r) { return r.json(); })
-      .catch(function (e) { return { ok: false, error: '通信に失敗しました。電波の良いところでもう一度お試しください（' + e.message + '）' }; });
+    // 書き込み系は同じ reqId で再試行する（サーバー側で二重実行を防ぐ）
+    if (WRITE_ACTIONS.indexOf(action) >= 0) body.reqId = String(Date.now()) + '-' + Math.random().toString(36).substring(2, 10);
+    var json = JSON.stringify(body);
+    var attempt = 0;
+    function once() {
+      attempt++;
+      return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: json })
+        .then(function (r) { return r.text(); })
+        .then(function (t) {
+          try { return JSON.parse(t); } catch (e) { throw new Error('応答が読めません（HTTP）'); }
+        })
+        .catch(function (e) {
+          if (attempt < 3) return new Promise(function (res) { setTimeout(res, 1500 * attempt); }).then(once);
+          return { ok: false, error: '通信に失敗しました。電波の良いところでもう一度お試しください（' + e.message + '）' };
+        });
+    }
+    return once();
   }
 
   // ---------- 画面の骨組み ----------
@@ -281,10 +296,10 @@
     var first = ymdToDate(B.month + '-01');
     for (var i = 0; i < first.getDay(); i++) grid.push(h('div'));
     Object.keys(r.days).sort().forEach(function (ymd) {
-      var st = r.days[ymd], on = B.wishDates.indexOf(ymd) >= 0, past = ymd < today;
+      var st = r.days[ymd], on = B.wishDates.indexOf(ymd) >= 0, past = ymd < today || st === 'past';
       var mk = st === 'ok' ? '○' : st === 'few' ? '△' : st === 'full' ? '×' : '';
       var d = h('div', { class: 'd ' + st + (on ? ' on' : '') + (past ? ' past' : ''), onclick: function () {
-        if (st === 'none' || st === 'full' || past) return;
+        if (st === 'none' || st === 'full' || st === 'past' || past) return;
         if (on) B.wishDates = B.wishDates.filter(function (x) { return x !== ymd; }); else B.wishDates.push(ymd);
         drawCalendar();
       } }, [h('span', {}, [String(Number(ymd.substring(8)))]), h('span', { class: 'mk' }, [mk])]);
