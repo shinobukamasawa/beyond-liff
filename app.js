@@ -87,7 +87,12 @@
     function once() {
       attempt++;
       var status = 0;
+      // 1回の通信は最長25秒（確定は40秒）で打ち切って再試行する。打ち切りは「timeout」として記録
+      var limit = action === 'confirm' ? 40000 : 25000;
+      var timedOut = false;
+      var timer = ctl ? setTimeout(function () { timedOut = true; ctl.abort(); }, limit) : null;
       return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: json, redirect: 'follow', signal: ctl ? ctl.signal : undefined })
+        .finally(function () { if (timer) clearTimeout(timer); })
         .then(function (r) { status = r.status; return r.text(); })
         .then(function (t) {
           var res;
@@ -96,8 +101,9 @@
           return res;
         })
         .catch(function (e) {
-          if (e && e.name === 'AbortError') { logApi({ at: Date.now(), action: action, bg: bg, attempt: attempt, fails: fails, ms: Date.now() - t0, timing: null, error: '中断' }); throw e; }
-          fails.push(e.message === 'Failed to fetch' ? 'net' : e.message);
+          if (e && e.name === 'AbortError' && !timedOut) { logApi({ at: Date.now(), action: action, bg: bg, attempt: attempt, fails: fails, ms: Date.now() - t0, timing: null, error: '中断' }); throw e; }
+          if (timedOut) { ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null; if (bg) bgCtl = ctl; }
+          fails.push(timedOut ? 'timeout' : (e.message === 'Failed to fetch' ? 'net' : e.message));
           if (attempt < 4) return new Promise(function (res) { setTimeout(res, 1000 * Math.pow(2, attempt - 1)); }).then(once); // 1秒→2秒→4秒
           logApi({ at: Date.now(), action: action, bg: bg, attempt: attempt, fails: fails, ms: Date.now() - t0, timing: null, error: e.message });
           return { ok: false, error: '通信に失敗しました。電波の良いところでもう一度お試しください（' + fails.join(',') + '）' };
