@@ -87,11 +87,10 @@
     function once() {
       attempt++;
       var status = 0;
-      // GAS の Web アプリは、ときどき1回の通信が 10〜35 秒かかったり 404 を返したりする（Google 側の揺らぎ。2026-09-18 実測）。
-      // 遅い回はランダムなので、読み取り系は1回目を8秒で見切って出し直すほうが速い（2回目以降は 15秒・25秒と長く待つ）。
-      // 書き込み系は、サーバー側に二重実行防止（reqId）があるが、安全側に倒して長く待つ（確定40秒、ほか25秒）。
-      var isWrite = WRITE_ACTIONS.indexOf(action) >= 0;
-      var limit = isWrite ? (action === 'confirm' ? 40000 : 25000) : [8000, 15000, 25000, 25000][attempt - 1];
+      // 1回の通信は最長25秒（確定は40秒）で打ち切って再試行する。
+      // 短く見切らないこと：通信制限中のスマホでは、最初の接続だけで 13〜19 秒かかる（2026-09-19 実測）。
+      // 8秒で見切る版を試したら、あと数秒で届く通信を捨ててやり直すことになり、合計33秒に悪化した。
+      var limit = action === 'confirm' ? 40000 : 25000;
       var timedOut = false;
       var timer = ctl ? setTimeout(function () { timedOut = true; ctl.abort(); }, limit) : null;
       return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: json, redirect: 'follow', signal: ctl ? ctl.signal : undefined })
@@ -139,7 +138,16 @@
     window.scrollTo(0, 0);
   }
   function msg(text, cls) { return h('div', { class: 'msg ' + (cls || 'info') }, [text]); }
-  function busy(title, text) { render(title, [h('div', { class: 'loading' }, [text || '処理しています…'])], [], { noWho: false }); }
+  function busy(title, text) { render(title, [h('div', { class: 'loading' }, [text || '処理しています…'])], [], { noWho: false }); slowHint(); }
+  // 読み込みが長引いたら、止まっていないことを伝える（通信制限中のスマホでは最初の通信に 15 秒前後かかることがある）
+  var slowTimer = null;
+  function slowHint() {
+    clearTimeout(slowTimer);
+    slowTimer = setTimeout(function () {
+      var el = document.querySelector('#app .loading');
+      if (el && !el.querySelector('.slow')) el.appendChild(h('div', { class: 'slow muted small', style: 'margin-top:10px' }, ['通信に時間がかかっています。そのままお待ちください。']));
+    }, 6000);
+  }
   function sheet(title, options) {
     var panel = h('div', { class: 'panel' }, [h('h4', {}, [title])].concat(options.map(function (o) {
       return h('button', { class: 'opt' + (o.danger ? ' danger' : ''), onclick: function () { close(); o.onclick(); } }, [o.label]);
@@ -559,5 +567,6 @@
     });
   }
 
+  slowHint();
   start();
 })();

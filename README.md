@@ -41,3 +41,7 @@ http://localhost:8765/?p=book&dev=xxxx&sub=Udev-taro
 - `fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON })`。text/plain にするのは CORS の事前確認を避けるため
 - 書き込み系（register / confirm / cancel）には `reqId` を付ける。通信に失敗して再試行しても、GAS 側が同じ reqId には1回目の結果を返す（二重予約の防止）
 - GAS の Web アプリ URL を変えたら config.js の `apiUrl` を差し替える（新しいデプロイを作ると URL が変わる。既存デプロイの更新なら変わらない）
+
+## 更新を確実に効かせる
+
+ブラウザ（LINE のアプリ内ブラウザを含む）は app.js などを使い回す。app.js・style.css・config.js を変えたら、index.html の `?v=` の値を変えてから配置する（例：`app.js?v=20260919b`）。index.html 自体は GitHub Pages が最長10分キャッシュする。
