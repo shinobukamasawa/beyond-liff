@@ -128,6 +128,8 @@
         h('span', {}, [given() + 'さんとして操作中']),
         multi ? h('button', { onclick: showSwitcher }, ['切り替え ▼']) : null,
       ]);
+    } else if (S.book && S.book.provisional && !(opts && opts.noWho)) {
+      who = h('div', { class: 'who' }, [h('span', {}, ['最新の情報を確認しています…'])]);
     }
     app.appendChild(h('div', { class: 'header' }, [
       h('div', { class: 'title' }, [h('span', {}, [title]), h('span', { class: 'brand' }, [CFG.schoolName])]),
@@ -173,6 +175,9 @@
   // 同時に出すと Google 側が 404 や数十秒の遅延を返すことを実測で確認している（2026-09-18）。
   // 起動時の「空撃ち」や、本番の呼び出しと重なる先読みはしない。
   function start() {
+    var saved = '';
+    try { saved = localStorage.getItem('beyond.student') || ''; } catch (e) { }
+    if (PAGE === 'book') showCachedTeachers(saved);
     var p = DEV.key ? Promise.resolve() : liff.init({ liffId: CFG.liffId }).then(function () {
       if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return new Promise(function () { }); }
       S.idToken = liff.getIDToken() || '';
@@ -180,14 +185,46 @@
     p.then(function () {
       console.log('[app] liff 準備 ' + (Date.now() - T0) + 'ms');
       logApi({ at: Date.now(), action: 'liff.init', bg: false, attempt: 1, fails: [], ms: Date.now() - T0, timing: null, error: '' });
-      var saved = '';
-      try { saved = localStorage.getItem('beyond.student') || ''; } catch (e) { }
       return api('init', { studentId: saved, page: PAGE });
     }).then(function (r) {
-      if (!r.ok) { screenError(r.error); return; }
+      if (!r.ok) { S.book = null; screenError(r.error); return; }
       S.linked = r.linked; S.current = r.current; S.contactText = r.contactText; S.deadlineText = r.deadlineText;
+      if (S.current) { try { localStorage.setItem('beyond.student', S.current.id); } catch (e) { } }
+      if (S.book && S.book.provisional) return settleProvisional(r.book);
       route({ book: r.book, list: r.list, count: r.count });
-    }).catch(function (e) { screenError('もう一度 LINE から開いてください（' + e.message + '）'); });
+    }).catch(function (e) { S.book = null; screenError('もう一度 LINE から開いてください（' + e.message + '）'); });
+  }
+
+  // ---------- 先生一覧の先出し ----------
+  // 開いた瞬間に、前回の先生一覧で先生選択を出す。裏で init が返ったら最新の内容に差し替える。
+  // 端末に覚えるのは先生の名前と出勤曜日・店舗だけ（生徒の氏名・残り回数・希望の先生は覚えない）。
+  // 古い一覧に休止した先生が数秒見えることがあるが、init が返れば消え、予約は GAS 側でも弾かれる。
+  var TEACHERS_KEY = 'beyond.teachers.v1';
+  function saveTeachersCache(studentId, teachers) {
+    try {
+      localStorage.setItem(TEACHERS_KEY, JSON.stringify({ studentId: studentId, at: Date.now(),
+        teachers: teachers.map(function (t) { return { id: t.id, name: t.name, workdays: t.workdays }; }) }));
+    } catch (e) { }
+  }
+  function showCachedTeachers(savedStudentId) {
+    var c = null;
+    try { c = JSON.parse(localStorage.getItem(TEACHERS_KEY) || 'null'); } catch (e) { }
+    if (!c || !savedStudentId || c.studentId !== savedStudentId || !c.teachers || !c.teachers.length) return;
+    if (Date.now() - c.at > 30 * 24 * 3600 * 1000) return;   // 1か月以上前の一覧は使わない
+    startBookingState(null);
+    S.book.provisional = true;
+    S.book.teachers = c.teachers;
+    drawTeachers();
+  }
+  /** init が返ったら、先出しの画面を最新の内容に差し替える。選びかけの先生は残す */
+  function settleProvisional(pre) {
+    var B = S.book, waiting = B.waiting;
+    if (!S.current || S.current.status === '退会' || !pre || !pre.ok || !pre.teachers.length) { S.book = null; return route({ book: pre }); }
+    B.provisional = false; B.waiting = false;
+    applyTeachers(pre);
+    if (waiting && B.teacherIds.length) return screenCalendar();
+    drawTeachers();
+    prefetchCalendar();
   }
 
   /** pre: init に同梱されていた最初の画面のデータ（あれば往復を省く） */
@@ -313,8 +350,12 @@
   }
 
   // ---------- 予約の流れ（画面②〜⑤） ----------
+  function startBookingState(original) {
+    S.book = { mode: original ? '振替' : '通常', original: original, teacherIds: [], month: '', months: [], wishDates: [], wishBands: [], rows: [], unused: [], n: 0, days: {}, cal: {}, pre: null,
+      provisional: false, waiting: false, touched: false };
+  }
   function startBooking(original, pre) {
-    S.book = { mode: original ? '振替' : '通常', original: original, teacherIds: [], month: '', months: [], wishDates: [], wishBands: [], rows: [], unused: [], n: 0, days: {}, cal: {}, pre: null };
+    startBookingState(original);
     screenTeachers(pre);
   }
 
@@ -323,14 +364,21 @@
     if (!pre) busy(B.mode === '振替' ? '振替：先生を選ぶ' : 'レッスン予約', '読み込み中…');
     (pre ? Promise.resolve(pre) : api('teachers', { studentId: S.current.id, originalId: B.original ? B.original.id : '' })).then(function (r) {
       if (!r.ok) return screenError(r.error);
-      B.teachers = r.teachers; B.months = r.months; B.releaseDay = r.releaseDay; B.releaseTime = r.releaseTime;
-      if (!B.month) B.month = B.original ? B.original.date.substring(0, 7) : r.months[0];
-      if (r.months.indexOf(B.month) < 0) B.month = r.months[0];
-      if (!B.teacherIds.length) B.teacherIds = r.preselected.slice();
       if (!r.teachers.length) return screenError('ご予約いただける先生の出勤がありません。お問い合わせください。');
+      applyTeachers(r);
       drawTeachers();
       prefetchCalendar();
     });
+  }
+  function applyTeachers(r) {
+    var B = S.book;
+    B.teachers = r.teachers; B.months = r.months; B.releaseDay = r.releaseDay; B.releaseTime = r.releaseTime;
+    if (!B.month) B.month = B.original ? B.original.date.substring(0, 7) : r.months[0];
+    if (r.months.indexOf(B.month) < 0) B.month = r.months[0];
+    // 先出しの画面で選びかけていたら、その選択を残す（一覧から消えた先生だけ外す）
+    if (B.touched) B.teacherIds = B.teacherIds.filter(function (id) { return r.teachers.some(function (t) { return t.id === id; }); });
+    else if (!B.teacherIds.length) B.teacherIds = r.preselected.slice();
+    if (!B.original) saveTeachersCache(S.current.id, r.teachers);
   }
 
   /** 先生選択の裏で、その月の空き状況を先に取り始める（選び終わるころには届いている） */
@@ -338,7 +386,7 @@
   function calKey() { var B = S.book; return B.teacherIds.slice().sort().join(',') + '|' + B.month + '|' + (B.original ? B.original.id : ''); }
   function prefetchCalendar() {
     var B = S.book;
-    if (!B.teacherIds.length) return;
+    if (B.provisional || !B.teacherIds.length) return;
     var key = calKey();
     if (B.pre && B.pre.key === key) return;
     var pre = { key: key, promise: null };
@@ -354,11 +402,12 @@
     var B = S.book;
     var all = B.teachers.every(function (t) { return B.teacherIds.indexOf(t.id) >= 0; });
     var cards = [h('div', { class: 'card' + (all ? ' sel' : ''), onclick: function () {
-      B.teacherIds = all ? [] : B.teachers.map(function (t) { return t.id; }); drawTeachers(); schedulePrefetch();
+      B.touched = true; B.teacherIds = all ? [] : B.teachers.map(function (t) { return t.id; }); drawTeachers(); schedulePrefetch();
     } }, [h('div', { class: 'row' }, [h('div', { class: 'avatar', style: 'background:#5b8bb8' }, ['✦']), h('div', { class: 'grow' }, [h('h3', {}, ['どの先生でもOK']), h('div', { class: 'muted small' }, ['全員を選んだ状態になります'])]), h('div', { class: 'check' }, [all ? '✓' : ''])])])];
     B.teachers.forEach(function (t) {
       var on = B.teacherIds.indexOf(t.id) >= 0;
       cards.push(h('div', { class: 'card' + (on ? ' sel' : ''), onclick: function () {
+        B.touched = true;
         if (on) B.teacherIds = B.teacherIds.filter(function (x) { return x !== t.id; }); else B.teacherIds.push(t.id);
         drawTeachers(); schedulePrefetch();
       } }, [h('div', { class: 'row' }, [
@@ -370,7 +419,11 @@
     var body = [h('p', {}, ['希望の先生を選んでください']), h('p', { class: 'muted small' }, ['複数選べます。選んだ先生の空きを合わせてご提案します。'])].concat(cards);
     if (B.mode === '振替') body.unshift(msg('振替：' + dispDate(B.original.date) + ' ' + hm(B.original.start) + ' ' + B.original.teacherName + '先生 の予約を別の日時に動かします', 'info'));
     render(B.mode === '振替' ? '振替：先生を選ぶ' : 'レッスン予約', body, [
-      h('button', { class: 'btn', disabled: !B.teacherIds.length, onclick: screenCalendar }, ['この先生たちで日を選ぶ']),
+      h('button', { class: 'btn', disabled: !B.teacherIds.length, onclick: function () {
+        // 先出し中（init がまだ返っていない）なら、返るのを待ってからカレンダーへ進む
+        if (B.provisional) { B.waiting = true; busy('空き状況', '読み込み中…'); return; }
+        screenCalendar();
+      } }, ['この先生たちで日を選ぶ']),
       B.mode === '振替' ? h('button', { class: 'btn ghost', onclick: goList }, ['← 一覧に戻る']) : null,
     ]);
   }
