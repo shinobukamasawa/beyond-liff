@@ -197,13 +197,14 @@
 
   // ---------- 先生一覧の先出し ----------
   // 開いた瞬間に、前回の先生一覧で先生選択を出す。裏で init が返ったら最新の内容に差し替える。
-  // 端末に覚えるのは先生の名前と出勤曜日・店舗だけ（生徒の氏名・残り回数・希望の先生は覚えない）。
+  // 端末に覚えるのは先生の名前・出勤曜日と店舗・ひとことだけ（生徒の氏名・残り回数・希望の先生は覚えない）。
+  // ひとことも覚えるのは、最新の内容が届いたときにカードの高さが変わって、選んでいる最中に画面がずれるのを防ぐため。
   // 古い一覧に休止した先生が数秒見えることがあるが、init が返れば消え、予約は GAS 側でも弾かれる。
-  var TEACHERS_KEY = 'beyond.teachers.v1';
+  var TEACHERS_KEY = 'beyond.teachers.v2';
   function saveTeachersCache(studentId, teachers) {
     try {
       localStorage.setItem(TEACHERS_KEY, JSON.stringify({ studentId: studentId, at: Date.now(),
-        teachers: teachers.map(function (t) { return { id: t.id, name: t.name, workdays: t.workdays }; }) }));
+        teachers: teachers.map(function (t) { return { id: t.id, name: t.name, workdays: t.workdays, message: t.message || '' }; }) }));
     } catch (e) { }
   }
   function showCachedTeachers(savedStudentId) {
