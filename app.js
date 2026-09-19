@@ -256,7 +256,7 @@
         r.upcoming.length ? h('div', {}, r.upcoming.map(function (b) {
           return h('div', { class: 'card' }, [h('div', {}, [dispDate(b.date) + ' ' + hm(b.start) + '　' + b.teacherName + '先生']), h('div', { class: 'muted small' }, [b.store + '・' + b.course])]);
         })) : h('p', { class: 'muted' }, ['予約はありません']),
-        h('button', { class: 'btn sub', onclick: screenList }, ['予約の確認・振替はこちら']),
+        h('button', { class: 'btn sub', onclick: goList }, ['予約の確認・振替はこちら']),
         h('p', { class: 'muted small' }, ['振替・キャンセルは' + S.deadlineText + 'まで。期限を過ぎると回数を消化します。']),
       ]);
     });
@@ -271,6 +271,8 @@
   }
 
   // ---------- 予約一覧（画面⑥） ----------
+  /** ボタンから一覧を開くときはこちら（onclick に screenList を直接渡すと、クリックの情報が pre に入ってしまう） */
+  function goList() { screenList(); }
   function screenList(pre) {
     if (!pre) busy('予約の確認・振替', '読み込み中…');
     (pre ? Promise.resolve(pre) : api('list', { studentId: S.current.id })).then(function (r) {
@@ -302,9 +304,9 @@
       { label: 'キャンセルする', danger: true, onclick: function () {
         busy('予約の確認・振替');
         api('cancel', { studentId: S.current.id, bookingId: b.id }).then(function (r) {
-          if (!r.ok) { render('予約の確認・振替', [msg(r.error, 'err'), h('button', { class: 'btn sub', onclick: screenList }, ['一覧に戻る'])]); return; }
+          if (!r.ok) { render('予約の確認・振替', [msg(r.error, 'err'), h('button', { class: 'btn sub', onclick: goList }, ['一覧に戻る'])]); return; }
           S.current = r.student;
-          render('予約の確認・振替', [msg('キャンセルしました。回数は1回戻ります（今月あと ' + r.student.remaining + ' 回）', 'ok'), h('button', { class: 'btn', onclick: screenList }, ['一覧に戻る'])]);
+          render('予約の確認・振替', [msg('キャンセルしました。回数は1回戻ります（今月あと ' + r.student.remaining + ' 回）', 'ok'), h('button', { class: 'btn', onclick: goList }, ['一覧に戻る'])]);
         });
       } },
     ]);
@@ -369,7 +371,7 @@
     if (B.mode === '振替') body.unshift(msg('振替：' + dispDate(B.original.date) + ' ' + hm(B.original.start) + ' ' + B.original.teacherName + '先生 の予約を別の日時に動かします', 'info'));
     render(B.mode === '振替' ? '振替：先生を選ぶ' : 'レッスン予約', body, [
       h('button', { class: 'btn', disabled: !B.teacherIds.length, onclick: screenCalendar }, ['この先生たちで日を選ぶ']),
-      B.mode === '振替' ? h('button', { class: 'btn ghost', onclick: screenList }, ['← 一覧に戻る']) : null,
+      B.mode === '振替' ? h('button', { class: 'btn ghost', onclick: goList }, ['← 一覧に戻る']) : null,
     ]);
   }
 
@@ -552,7 +554,7 @@
       S.current = r.student;
       if (r.transfer) {
         render('振替が完了しました', [msg('振替しました。', 'ok'), h('div', { class: 'card' }, [dispDate(r.booking.date) + ' ' + hm(r.booking.start) + '〜' + hm(r.booking.end) + '　' + r.booking.teacherName + '先生・' + r.booking.store]),
-          h('button', { class: 'btn', onclick: screenList }, ['予約の確認・振替へ'])]);
+          h('button', { class: 'btn', onclick: goList }, ['予約の確認・振替へ'])]);
         return;
       }
       var okRows = r.results.filter(function (x) { return x.ok; }), ng = r.results.filter(function (x) { return !x.ok; });
@@ -561,7 +563,7 @@
         h('div', { class: 'card' }, okRows.map(function (x) { var tr = rows.filter(function (q) { return q.date === x.date && q.start === x.start; })[0]; return h('div', {}, [dispDate(x.date) + ' ' + hm(x.start) + '　' + (tr ? tr.teacherName + '先生' : '')]); })),
         ng.length ? msg('登録できなかった回があります：' + ng.map(function (x) { return dispDate(x.date) + ' ' + hm(x.start); }).join('、') + '\nもう一度予約画面からお試しください。', 'warn') : null,
         h('div', { class: 'stat' }, [h('span', {}, ['今月あと']), h('span', {}, [h('b', {}, [String(r.student.remaining)]), ' 回'])]),
-        h('button', { class: 'btn', onclick: screenList }, ['予約の確認・振替へ']),
+        h('button', { class: 'btn', onclick: goList }, ['予約の確認・振替へ']),
         h('button', { class: 'btn sub', onclick: function () { if (window.liff && liff.closeWindow) liff.closeWindow(); } }, ['閉じる']),
       ]);
     });
