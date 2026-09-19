@@ -108,6 +108,8 @@
           fails.push(timedOut ? 'timeout' : (e.message === 'Failed to fetch' ? 'net' : e.message));
           if (attempt < 4) return new Promise(function (res) { setTimeout(res, 1000 * Math.pow(2, attempt - 1)); }).then(once); // 1秒→2秒→4秒
           logApi({ at: Date.now(), action: action, bg: bg, attempt: attempt, fails: fails, ms: Date.now() - t0, timing: null, error: e.message });
+          // 予約・キャンセルは、結果を受け取れなかっただけで手続きは済んでいることがある。押し直す前に一覧で確かめてもらう
+          if (action === 'confirm' || action === 'cancel') return { ok: false, error: '通信に失敗し、結果を確認できませんでした。もう一度押す前に、「予約の確認・振替」で手続きが済んでいないかお確かめください（' + fails.join(',') + '）' };
           return { ok: false, error: '通信に失敗しました。電波の良いところでもう一度お試しください（' + fails.join(',') + '）' };
         });
     }
@@ -140,14 +142,19 @@
     window.scrollTo(0, 0);
   }
   function msg(text, cls) { return h('div', { class: 'msg ' + (cls || 'info') }, [text]); }
-  function busy(title, text) { render(title, [h('div', { class: 'loading' }, [text || '処理しています…'])], [], { noWho: false }); slowHint(); }
-  // 読み込みが長引いたら、止まっていないことを伝える（通信制限中のスマホでは最初の通信に 15 秒前後かかることがある）
+  /** writing：予約の確定・キャンセルなど、書き込みの待ち画面のとき true */
+  function busy(title, text, writing) { render(title, [h('div', { class: 'loading' }, [text || '処理しています…'])], [], { noWho: false }); slowHint(writing); }
+  // 読み込みが長引いたら、止まっていないことを伝える（通信制限中のスマホでは最初の通信に 15 秒前後かかることがある）。
+  // 書き込みのときは「閉じないで」をはっきり書く：Google 側の不調で依頼がまだ届いていないことがあり、
+  // そこで閉じられると出し直しが止まって、手続きされないままになる（2026-09-19、キャンセルに 74 秒かかった回で確認）。
+  // 受付済みのようには見せない。取り消したつもりで予約が残るのがいちばん困るため。
   var slowTimer = null;
-  function slowHint() {
+  function slowHint(writing) {
     clearTimeout(slowTimer);
     slowTimer = setTimeout(function () {
       var el = document.querySelector('#app .loading');
-      if (el && !el.querySelector('.slow')) el.appendChild(h('div', { class: 'slow muted small', style: 'margin-top:10px' }, ['通信に時間がかかっています。そのままお待ちください。']));
+      if (el && !el.querySelector('.slow')) el.appendChild(h('div', { class: 'slow muted small', style: 'margin-top:10px' },
+        [writing ? '手続き中です。画面を閉じずにお待ちください（1分ほどかかることがあります）。終わるとこの画面に結果が出ます。' : '通信に時間がかかっています。そのままお待ちください。']));
     }, 6000);
   }
   function sheet(title, options) {
@@ -340,7 +347,7 @@
   function confirmCancel(b) {
     sheet(dispDate(b.date) + ' ' + hm(b.start) + ' ' + b.teacherName + '先生 の予約をキャンセルします。回数は1回戻ります。よろしいですか？', [
       { label: 'キャンセルする', danger: true, onclick: function () {
-        busy('予約の確認・振替');
+        busy('予約の確認・振替', 'キャンセルしています…', true);
         api('cancel', { studentId: S.current.id, bookingId: b.id }).then(function (r) {
           if (!r.ok) { render('予約の確認・振替', [msg(r.error, 'err'), h('button', { class: 'btn sub', onclick: goList }, ['一覧に戻る'])]); return; }
           S.current = r.student;
@@ -597,7 +604,7 @@
   }
   function doConfirm(rows, memoText) {
     var B = S.book;
-    busy('予約内容の確認', '予約しています…（カレンダーに書き込むため少し時間がかかります）');
+    busy('予約内容の確認', '予約しています…（カレンダーに書き込むため少し時間がかかります）', true);
     api('confirm', { studentId: S.current.id, rows: rows, memo: memoText, originalId: B.original ? B.original.id : '' }).then(function (r) {
       if (!r.ok) {
         var body = [msg(r.error, 'err')];
