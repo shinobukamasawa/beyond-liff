@@ -211,7 +211,7 @@
   function saveTeachersCache(studentId, teachers) {
     try {
       localStorage.setItem(TEACHERS_KEY, JSON.stringify({ studentId: studentId, at: Date.now(),
-        teachers: teachers.map(function (t) { return { id: t.id, name: t.name, workdays: t.workdays, message: t.message || '' }; }) }));
+        teachers: teachers.map(function (t) { return { id: t.id, name: t.name, workdays: t.workdays, message: t.message || '', hasPhoto: !!t.hasPhoto }; }) }));
     } catch (e) { }
   }
   function showCachedTeachers(savedStudentId) {
@@ -233,6 +233,7 @@
     if (waiting && B.teacherIds.length) return screenCalendar();
     drawTeachers();
     prefetchCalendar();
+    if (!B.pre) loadPhotos();
   }
 
   /** pre: init に同梱されていた最初の画面のデータ（あれば往復を省く） */
@@ -376,6 +377,7 @@
       applyTeachers(r);
       drawTeachers();
       prefetchCalendar();
+      if (!B.pre) loadPhotos();
     });
   }
   function applyTeachers(r) {
@@ -401,6 +403,34 @@
     pre.promise = api('calendar', { studentId: S.current.id, teacherIds: B.teacherIds.slice(), month: B.month, originalId: B.original ? B.original.id : '' }, { background: true })
       .catch(function () { if (B.pre === pre) B.pre = null; return null; });
     B.pre = pre;
+    pre.promise.then(loadPhotos);   // 写真は空き状況の先読みが終わってから（GAS へ同時に通信を出さない）
+  }
+
+  /**
+   * 先生の写真。先生選択を出したあと、裏で1回だけ取りに行き、届いたら頭文字のアイコンを写真に差し替える（大きさは同じなので画面は動かない）。
+   * 覚えるのは開いている間だけ（sessionStorage）。写真が1枚も登録されていなければ通信しない。
+   */
+  var photoState = 'none';   // none → loading → done
+  function loadPhotos() {
+    var B = S.book;
+    if (photoState !== 'none' || !B || B.provisional || !S.current) return;
+    if (!(B.teachers || []).some(function (t) { return t.hasPhoto; })) return;
+    try { var saved = JSON.parse(sessionStorage.getItem('beyond.photos') || 'null'); if (saved) { S.photos = saved; photoState = 'done'; paintPhotos(); return; } } catch (e) { }
+    if (fgInflight > 0 || bgCtl) return;   // 他の通信が動いている間は出さない。次の先読みのあとでもう一度試す
+    photoState = 'loading';
+    api('photos', { studentId: S.current.id }, { background: true }).then(function (r) {
+      if (!r || !r.ok) { photoState = 'none'; return; }
+      S.photos = r.photos || {}; photoState = 'done';
+      try { sessionStorage.setItem('beyond.photos', JSON.stringify(S.photos)); } catch (e) { }
+      paintPhotos();
+    }).catch(function () { photoState = 'none'; });
+  }
+  function photoStyle(id) { var u = S.photos && S.photos[id]; return u ? 'background-image:url(' + u + ');background-size:cover;background-position:center;color:transparent' : ''; }
+  function paintPhotos() {
+    Array.prototype.forEach.call(document.querySelectorAll('.avatar[data-tid]'), function (el) {
+      var st = photoStyle(el.getAttribute('data-tid'));
+      if (st) el.setAttribute('style', st);
+    });
   }
   function schedulePrefetch() {
     clearTimeout(prefetchTimer);
@@ -419,7 +449,7 @@
         if (on) B.teacherIds = B.teacherIds.filter(function (x) { return x !== t.id; }); else B.teacherIds.push(t.id);
         drawTeachers(); schedulePrefetch();
       } }, [h('div', { class: 'row' }, [
-        h('div', { class: 'avatar' }, [t.name.charAt(0)]),
+        h('div', { class: 'avatar', 'data-tid': t.id, style: photoStyle(t.id) }, [t.name.charAt(0)]),
         h('div', { class: 'grow' }, [h('h3', {}, [t.name + '先生']), h('div', { class: 'muted small' }, [t.workdays + 'に出勤']), t.message ? h('div', { class: 'small', style: 'color:#2b5d8c' }, ['「' + t.message + '」']) : null]),
         h('div', { class: 'check' }, [on ? '✓' : '']),
       ])]));
