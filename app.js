@@ -99,6 +99,10 @@
         .then(function (t) {
           var res;
           try { res = JSON.parse(t); } catch (e) { throw new Error(status ? 'HTTP' + status : 'HTML'); }
+          // GAS が POST の結果ではなく doGet の応答（{ ok:true, service:'beyond-booking' }）を返してくることがある
+          // （2026-09-20 に2回確認。処理は実行されているのに、結果だけが届かない）。ok:true なので、そのまま使うと画面が壊れる。
+          // 失敗として出し直す。書き込み系は同じ reqId なので、GAS 側が1回目の結果を返す（二重にはならない）
+          if (res && res.service === 'beyond-booking') throw new Error('GET応答');
           logApi({ at: Date.now(), action: action, bg: bg, attempt: attempt, fails: fails, ms: Date.now() - t0, timing: res._timing || null, error: res.ok ? '' : res.error });
           return res;
         })
