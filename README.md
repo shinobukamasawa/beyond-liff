@@ -8,6 +8,7 @@
 | app.js | 全画面（初回登録、先生選択、カレンダー、提案、確認、一覧、残り回数、お問い合わせ） |
 | style.css | 見た目（スマホ幅） |
 | config.js | LIFF ID と GAS の Web アプリ URL（公開されてよい値だけ） |
+| logic/ | 提案ロジックの **写し**（正本は gas/logic/）。直さないこと。`npm run sync:logic` で作り直す。ずれていると配置が止まる |
 
 ## 置き場と URL
 

@@ -421,6 +421,91 @@
     if (B.touched) B.teacherIds = B.teacherIds.filter(function (id) { return r.teachers.some(function (t) { return t.id === id; }); });
     else if (!B.teacherIds.length) B.teacherIds = r.preselected.slice();
     if (!B.original) saveTeachersCache(S.current.id, r.teachers);
+    planSet(r.plan);
+  }
+
+  // ---------- 空き状況・提案・変更を、端末の中で計算する ----------
+  // GAS の入口が不安定なので、GAS を通るのは立ち上げ（先生一覧）と確定だけにする（2026-09-20）。
+  // 計算は GAS と同じファイル（web/logic/Teian.js は gas/logic/Teian.js の写し）。材料は先生一覧の応答に同梱されてくる（plan）。
+  // 材料は届いた時点の写しなので、10分を過ぎたら使わずに GAS に聞く。確定のときは GAS が最新のデータで再チェックする。
+  // URL に ?local=0 を付けると、端末内の計算を使わない（比べるとき用）
+  var PLAN_MAX_AGE = 10 * 60 * 1000;
+  function planSet(plan) {
+    var B = S.book;
+    B.plan = null;
+    if (!plan || !plan.student) return;
+    var sid = plan.student.id;
+    B.plan = {
+      builtAt: plan.builtAt, student: plan.student, teachers: plan.teachers, settings: plan.settings,
+      slots: plan.slots.map(function (x) { return { date: x[0], teacherId: x[1], store: x[2], start: x[3], end: x[4] }; }),
+      bookings: plan.bookings.map(function (x) { return { id: x[0], studentId: x[1] ? sid : '', teacherId: x[2], date: x[3], start: x[4], end: x[5], state: x[6] }; }),
+    };
+    B.planAt = Date.now();
+  }
+  function planOk() {
+    var B = S.book;
+    return !!(B && B.plan && typeof tnPropose === 'function' && typeof bookingLimit === 'function' && qs.get('local') !== '0' && Date.now() - B.planAt < PLAN_MAX_AGE);
+  }
+  /** いまの日本時間。端末の時計や時差に頼らず、GAS の時刻＋経過で出す */
+  function planNow() {
+    var B = S.book;
+    var d = new Date(B.plan.builtAt + (Date.now() - B.planAt) + 9 * 3600 * 1000);
+    var ymd = d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
+    return { ymd: ymd, minutes: d.getUTCHours() * 60 + d.getUTCMinutes() };
+  }
+  function planInput(p) {
+    var P = S.book.plan;
+    var original = p.originalId ? P.bookings.filter(function (b) { return b.id === p.originalId; })[0] || { id: p.originalId } : null;
+    return { mode: original ? '振替' : '通常', student: P.student, teacherIds: p.teacherIds || [], teachers: P.teachers,
+      wishDates: p.wishDates || [], wishBands: p.wishBands || [], targetMonth: String(p.month), slots: P.slots, bookings: P.bookings,
+      original: original, now: planNow(), settings: P.settings };
+  }
+  function planRow(r) {
+    var t = S.book.plan.teachers.filter(function (x) { return x.id === r.teacherId; })[0];
+    return { date: r.date, teacherId: r.teacherId, teacherName: t ? t.name : r.teacherId, store: r.store, start: r.start, end: r.end,
+      slotStart: r.slotStart, slotEnd: r.slotEnd, reason: r.reason || '', fromWish: r.fromWish !== false, changed: !!r.changed };
+  }
+  /** GAS の api/Api.js の calendar・propose・alternatives と同じ結果を、端末の中で作る */
+  var PLAN_ACTIONS = {
+    calendar: function (p) {
+      var input = planInput(p), s = input.student, month = String(p.month);
+      var pre = tnPrecheck(input);
+      if (pre) return { ok: true, month: month, blocked: pre.message, code: pre.code, days: {}, count: 0 };
+      var dates = [], ym = month.split('-'), last = new Date(Number(ym[0]), Number(ym[1]), 0).getDate();
+      for (var d = 1; d <= last; d++) dates.push(month + '-' + ('0' + d).slice(-2));
+      var hasSlot = {};
+      input.slots.forEach(function (sl) { if (input.teacherIds.indexOf(sl.teacherId) >= 0 && sl.store === s.store) hasSlot[sl.date] = true; });
+      var perDay = {};
+      tnCandidates(input, dates).forEach(function (c) { perDay[c.date] = (perDay[c.date] || 0) + 1; });
+      var days = {}, today = input.now.ymd;
+      dates.forEach(function (dt) { var n = perDay[dt] || 0; days[dt] = dt < today ? 'past' : n >= 3 ? 'ok' : n > 0 ? 'few' : hasSlot[dt] ? 'full' : 'none'; });
+      return { ok: true, month: month, days: days, count: tnCount(input), limit: bookingLimit(month, s) };
+    },
+    propose: function (p) {
+      var r = tnPropose(planInput(p));
+      if (!r.ok) return { ok: false, code: r.code, error: r.message };
+      return { ok: true, n: r.n, rows: r.rows.map(planRow), unusedWishDates: r.unusedWishDates, short: r.short, message: r.message, student: S.current };
+    },
+    alternatives: function (p) {
+      var input = planInput(p), rows = p.rows || [], idx = Number(p.index);
+      if (p.kind === 'times') return { ok: true, options: tnAltTimes(input, rows, idx).map(planRow) };
+      if (p.kind === 'swap') { var r = tnSwapDate(input, rows, idx, String(p.newDate)); return r ? { ok: true, row: planRow(r) } : { ok: false, error: 'この日は空きがありません' }; }
+      if (p.kind === 'teachers') return { ok: true, options: tnAltTeachers(input, rows, idx).map(planRow) };
+      return { ok: false, error: '不明な変更です' };
+    },
+  };
+  /** 端末の中で計算できればそうする。できなければ（材料がない・古い・計算で例外）GAS に聞く */
+  function planApi(action, params, opts) {
+    if (!planOk() || !PLAN_ACTIONS[action]) return api(action, params, opts);
+    var t0 = Date.now();
+    try {
+      var res = PLAN_ACTIONS[action](params);
+      logApi({ at: Date.now(), action: action + '(端末内)', bg: false, attempt: 1, fails: [], ms: Date.now() - t0, timing: null, error: res.ok ? '' : res.error });
+      return Promise.resolve(res);
+    } catch (e) {
+      console.error('[plan] ' + action + ' を端末内で計算できませんでした。GAS に聞きます', e);
+      return api(action, params, opts);
+    }
   }
 
   /** 先生選択の裏で、その月の空き状況を先に取り始める（選び終わるころには届いている） */
@@ -432,7 +517,7 @@
     var key = calKey();
     if (B.pre && B.pre.key === key) return;
     var pre = { key: key, promise: null };
-    pre.promise = api('calendar', { studentId: S.current.id, teacherIds: B.teacherIds.slice(), month: B.month, originalId: B.original ? B.original.id : '' }, { background: true })
+    pre.promise = planApi('calendar', { studentId: S.current.id, teacherIds: B.teacherIds.slice(), month: B.month, originalId: B.original ? B.original.id : '' }, { background: true })
       .catch(function () { if (B.pre === pre) B.pre = null; return null; });
     B.pre = pre;
     pre.promise.then(loadPhotos);   // 写真は空き状況の先読みが終わってから（GAS へ同時に通信を出さない）
@@ -502,13 +587,13 @@
     var B = S.book;
     var key = calKey();
     var promise = (B.pre && B.pre.key === key) ? B.pre.promise
-      : api('calendar', { studentId: S.current.id, teacherIds: B.teacherIds.slice(), month: B.month, originalId: B.original ? B.original.id : '' });
+      : planApi('calendar', { studentId: S.current.id, teacherIds: B.teacherIds.slice(), month: B.month, originalId: B.original ? B.original.id : '' });
     if (!(B.pre && B.pre.key === key)) B.pre = { key: key, promise: promise };
     busy('空き状況', '読み込み中…');
     promise.then(function (r) {
       if (!r) {   // 先読みが中断されていたら本番で取り直す
         B.pre = null;
-        return api('calendar', { studentId: S.current.id, teacherIds: B.teacherIds.slice(), month: B.month, originalId: B.original ? B.original.id : '' }).then(function (r2) {
+        return planApi('calendar', { studentId: S.current.id, teacherIds: B.teacherIds.slice(), month: B.month, originalId: B.original ? B.original.id : '' }).then(function (r2) {
           if (!r2.ok) return screenError(r2.error);
           B.cal[B.month] = r2; drawCalendar();
         });
@@ -574,7 +659,7 @@
     var B = S.book;
     B.wishDates = B.wishDates.filter(function (d) { return d.substring(0, 7) === B.month; });
     busy('ご提案', '空きを探しています…');
-    api('propose', { studentId: S.current.id, teacherIds: B.teacherIds, wishDates: B.wishDates, wishBands: B.wishBands, month: B.month, originalId: B.original ? B.original.id : '' }).then(function (r) {
+    planApi('propose', { studentId: S.current.id, teacherIds: B.teacherIds, wishDates: B.wishDates, wishBands: B.wishBands, month: B.month, originalId: B.original ? B.original.id : '' }).then(function (r) {
       if (!r.ok) { render('ご提案', [msg(r.error, 'err'), h('button', { class: 'btn sub', onclick: drawCalendar }, ['← 希望日を選び直す'])]); return; }
       B.rows = r.rows; B.unused = r.unusedWishDates; B.n = r.n; B.short = r.message; S.current = r.student;
       drawProposal();
@@ -618,7 +703,7 @@
   function alternatives(kind, i) {
     var B = S.book;
     busy('ご提案', '別の候補を探しています…');
-    api('alternatives', { kind: kind, index: i, rows: B.rows, studentId: S.current.id, teacherIds: B.teacherIds, wishDates: B.wishDates, wishBands: B.wishBands, month: B.month, originalId: B.original ? B.original.id : '' }).then(function (r) {
+    planApi('alternatives', { kind: kind, index: i, rows: B.rows, studentId: S.current.id, teacherIds: B.teacherIds, wishDates: B.wishDates, wishBands: B.wishBands, month: B.month, originalId: B.original ? B.original.id : '' }).then(function (r) {
       drawProposal();
       if (!r.ok) { sheet(r.error, []); return; }
       if (!r.options.length) { sheet(kind === 'times' ? 'この日に他の空き時間はありません' : 'この日に空きのある他の先生はいません', []); return; }
@@ -635,7 +720,7 @@
     sheet('別の候補日と入れ替える', B.unused.slice().sort().map(function (d) {
       return { label: dispDate(d), onclick: function () {
         busy('ご提案', '空きを探しています…');
-        api('alternatives', { kind: 'swap', index: i, newDate: d, rows: B.rows, studentId: S.current.id, teacherIds: B.teacherIds, wishDates: B.wishDates, wishBands: B.wishBands, month: B.month, originalId: B.original ? B.original.id : '' }).then(function (r) {
+        planApi('alternatives', { kind: 'swap', index: i, newDate: d, rows: B.rows, studentId: S.current.id, teacherIds: B.teacherIds, wishDates: B.wishDates, wishBands: B.wishBands, month: B.month, originalId: B.original ? B.original.id : '' }).then(function (r) {
           drawProposal();
           if (!r.ok) { sheet(r.error, []); return; }
           var cur = B.rows[i]; if (B.wishDates.indexOf(cur.date) >= 0 && B.unused.indexOf(cur.date) < 0) B.unused.push(cur.date);
@@ -692,6 +777,8 @@
     });
   }
 
+  // ?debug=1 のときだけ、端末内の計算と GAS の結果を見比べるための入口を出す（秘密の情報は含まない）
+  if (DEBUG) window.__beyond = { planApi: planApi, api: api, state: S };
   slowHint();
   start();
 })();
