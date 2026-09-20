@@ -11,6 +11,8 @@ html, body { margin: 0; padding: 0; background: #f4f6f9; color: var(--ink); font
 .header .title { font-weight: 700; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
 .header .brand { font-size: 12px; opacity: .85; font-weight: 400; }
 .header .who { margin-top: 4px; font-size: 13px; opacity: .95; display: flex; align-items: center; gap: 8px; min-height: 24px; }  /* 切り替えボタンの有無で高さが変わらないように（先出しの差し替えで画面がずれるのを防ぐ） */
+.header .who .who-tap { cursor: pointer; }
+.header .who .who-mark { opacity: .6; font-size: 11px; }
 .header .who button { background: rgba(255,255,255,.18); color: #fff; border: 1px solid rgba(255,255,255,.4); border-radius: 14px; padding: 2px 10px; font-size: 12px; }
 
 .body { padding: 14px 16px 90px; flex: 1; }

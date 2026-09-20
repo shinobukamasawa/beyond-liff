@@ -130,8 +130,11 @@
     var who = null;
     if (S.current && !(opts && opts.noWho)) {
       var multi = S.linked.length > 1;
+      // 1人だけのときは切り替えのボタンを出さない（決定 R）。ただし、下の子が後から入会したときの入口として、
+      // 名前のところを押せるようにしておく（開くと「もう1人登録する」だけが出る。2026-09-20 にん決定）
       who = h('div', { class: 'who' }, [
-        h('span', {}, [given() + 'さんとして操作中']),
+        multi ? h('span', {}, [given() + 'さんとして操作中'])
+          : h('span', { class: 'who-tap', role: 'button', onclick: showSwitcher }, [given() + 'さんとして操作中', h('span', { class: 'who-mark' }, [' ▾'])]),
         multi ? h('button', { onclick: showSwitcher }, ['切り替え ▼']) : null,
       ]);
     } else if (S.book && S.book.provisional && !(opts && opts.noWho)) {
@@ -171,6 +174,10 @@
   }
 
   function showSwitcher() {
+    if (S.linked.length <= 1) {   // 1人だけ：切り替える相手がいないので、登録の入口だけ
+      sheet('ご兄弟で同じ LINE をお使いの場合', [{ label: '＋ もう1人登録する', onclick: function () { screenRegister(true); } }]);
+      return;
+    }
     var opts = S.linked.map(function (s) {
       return { label: s.family + ' ' + s.given + ' さん（' + s.course + '・' + s.store + '）' + (s.id === S.current.id ? ' ✓' : ''), onclick: function () {
         S.current = s; try { localStorage.setItem('beyond.student', s.id); } catch (e) { }
@@ -277,6 +284,7 @@
       h('div', { class: 'field' }, [h('label', {}, ['教室にお届けの電話番号']), phone]),
       btn, note,
       h('p', { class: 'muted small' }, ['※名簿にご登録のフリガナと電話番号を入力してください。ご不明な点はお問い合わせへ。']),
+      additional ? h('button', { class: 'btn sub', onclick: function () { S.book = null; route(); } }, ['← 登録せずに戻る']) : null,
       h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
     ], [], { noWho: !additional });
   }
