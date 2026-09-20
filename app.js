@@ -415,13 +415,25 @@
   function applyTeachers(r) {
     var B = S.book;
     B.teachers = r.teachers; B.months = r.months; B.releaseDay = r.releaseDay; B.releaseTime = r.releaseTime;
-    if (!B.month) B.month = B.original ? B.original.date.substring(0, 7) : r.months[0];
+    if (!B.month) {
+      B.month = B.original ? B.original.date.substring(0, 7) : r.months[0];
+      // 今月の回数を使い切っていて、来月の受付が始まっているなら、最初から来月を開く（2026-09-20 にん決定）。
+      // 今月のままだと「すべて予約済みです」と日付のないカレンダーが出て、› で来月へ進めることに気づきにくい
+      if (!B.original && r.months.length > 1 && monthUsedUp(r, r.months[0])) { B.month = r.months[1]; B.autoNext = true; }
+    }
     if (r.months.indexOf(B.month) < 0) B.month = r.months[0];
     // 先出しの画面で選びかけていたら、その選択を残す（一覧から消えた先生だけ外す）
     if (B.touched) B.teacherIds = B.teacherIds.filter(function (id) { return r.teachers.some(function (t) { return t.id === id; }); });
     else if (!B.teacherIds.length) B.teacherIds = r.preselected.slice();
     if (!B.original) saveTeachersCache(S.current.id, r.teachers);
     planSet(r.plan);
+  }
+
+  /** その月に使える回数が残っていないか。計算用データがあれば GAS と同じ式（bookingLimit）で、なければ残り回数で見る */
+  function monthUsedUp(r, month) {
+    var st = r.plan && r.plan.student;
+    if (st && typeof bookingLimit === 'function') return bookingLimit(month, st) <= 0;
+    return !!S.current && Number(S.current.remaining) <= 0;
   }
 
   // ---------- 空き状況・提案・変更を、端末の中で計算する ----------
@@ -633,8 +645,11 @@
 
     var body = [
       h('button', { class: 'btn ghost', style: 'text-align:left;padding:4px 0', onclick: drawTeachers }, ['← 先生を選び直す']),
-      h('div', { class: 'row between' }, [h('div', {}, ['希望日：', h('b', {}, [String(B.wishDates.length)]), '日を選択中']), h('div', {}, ['今月あと ', h('b', {}, [String(S.current.remaining)]), ' 回'])]),
+      h('div', { class: 'row between' }, [h('div', {}, ['希望日：', h('b', {}, [String(B.wishDates.length)]), '日を選択中']), (B.month !== B.months[0] && r.limit !== undefined)
+        ? h('div', {}, [dispMonth(B.month) + 'に使える回数 ', h('b', {}, [String(r.limit)]), ' 回'])   // 来月を見ているときに「今月あと0回」と出すと、選べるのに0回に見える
+        : h('div', {}, ['今月あと ', h('b', {}, [String(S.current.remaining)]), ' 回'])]),
       r.blocked ? msg(r.blocked, 'warn') : null,
+      (B.autoNext && B.month === B.months[1] && !r.blocked) ? msg(dispMonth(B.months[0]) + '分の回数はすべてご予約済みのため、' + dispMonth(B.month) + 'を表示しています。', 'info') : null,
       h('div', { class: 'chips' }, [
         h('button', { class: 'chip', onclick: function () { Object.keys(r.days).forEach(function (d) { if ((r.days[d] === 'ok' || r.days[d] === 'few') && d >= today && B.wishDates.indexOf(d) < 0) B.wishDates.push(d); }); drawCalendar(); } }, ['行ける日をすべて選ぶ']),
         h('button', { class: 'chip', onclick: function () { B.wishDates = B.wishDates.filter(function (d) { return d.substring(0, 7) !== B.month; }); drawCalendar(); } }, ['選択をクリア']),
