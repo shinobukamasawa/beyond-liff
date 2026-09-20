@@ -258,8 +258,12 @@
     return startBooking(null, pre.book);
   }
 
-  function screenError(text) {
-    render('ビヨンド', [msg(text, 'err'), h('button', { class: 'btn sub', onclick: screenContact }, ['お問い合わせ'])], [], { noWho: true });
+  /**
+   * keepWho：ヘッダの「○○さんとして操作中／切り替え」を残す。
+   * 休会中で予約できない、のように「この生徒だから」出るエラーで使う。ヘッダを消すと、兄弟に切り替える手段がなくなって行き止まりになる
+   */
+  function screenError(text, keepWho, title) {
+    render(title || 'ビヨンド', [msg(text, 'err'), h('button', { class: 'btn sub', onclick: screenContact }, ['お問い合わせ'])], [], { noWho: !keepWho });
   }
 
   // ---------- 初回登録（画面⓪） ----------
@@ -384,7 +388,7 @@
     var B = S.book;
     if (!pre) busy(B.mode === '振替' ? '振替：先生を選ぶ' : 'レッスン予約', '読み込み中…');
     (pre ? Promise.resolve(pre) : api('teachers', { studentId: S.current.id, originalId: B.original ? B.original.id : '' })).then(function (r) {
-      if (!r.ok) return screenError(r.error);
+      if (!r.ok) return screenError(r.error, r.code === 'status', 'レッスン予約');
       if (!r.teachers.length) return screenError('ご予約いただける先生の出勤がありません。お問い合わせください。');
       applyTeachers(r);
       drawTeachers();
