@@ -303,6 +303,20 @@
     ]);
   }
 
+  /**
+   * 休会中の生徒には、残り回数と予約一覧の上に1行出す（2026-09-20 にん決定）。
+   * 回数は休会中も保持される（仕様10章）ので、数字だけ見ると「回数があるのに予約できない」と見えるため。
+   * 復帰の申請が入っていれば、再開の月を出す（その月の分からは、休会中でも予約できる）
+   */
+  function kyukaiNote(s) {
+    if (!s || s.status !== '休会') return null;
+    if (s.requestKind === '復帰' && s.applyMonth) {
+      var m = Number(String(s.applyMonth).split('-')[1]);
+      return msg('休会中です。' + m + '月から再開予定です（' + m + '月分からご予約できます。回数は保持されています）。', 'info');
+    }
+    return msg('休会中です。ご予約は再開後にできます（回数は保持されています）。', 'info');
+  }
+
   // ---------- 残り回数 ----------
   function screenCount(pre) {
     if (!pre) busy('残り回数', '読み込み中…');
@@ -310,6 +324,7 @@
       if (!r.ok) return screenError(r.error);
       var s = r.student;
       render('残り回数', [
+        kyukaiNote(s),
         h('div', { class: 'card' }, [
           h('div', { class: 'stat' }, [h('span', {}, ['今月あと']), h('span', {}, [h('b', {}, [String(s.remaining)]), ' 回'])]),
           s.advance > 0 ? h('div', { class: 'muted small' }, ['（来月分から先に使用 ' + s.advance + ' 回）']) : null,
@@ -353,6 +368,7 @@
         ]);
       });
       render('予約の確認・振替', [
+        kyukaiNote(r.student),
         h('div', { class: 'muted small', style: 'margin-bottom:8px' }, ['今月あと ' + r.student.remaining + ' 回']),
         items.length ? h('div', {}, items) : h('p', { class: 'muted' }, ['これからの予約はありません。']),
         msg('期限を過ぎたお申し出は、これまでどおりLINEのメッセージでご相談ください。', 'warn'),
