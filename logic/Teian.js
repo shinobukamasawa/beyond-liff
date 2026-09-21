@@ -103,6 +103,9 @@ function tnRejectBasic_(input, c) {
   if (c.date < now.ymd) return '過去';
   var deadline = tnAddDays_(c.date, -st.minLeadDays);
   if (now.ymd > deadline || (now.ymd === deadline && now.minutes >= st.minLeadMinutes)) return '受付締切';
+  // 振替：元の予約とまったく同じ枠（同じ日・同じ開始時刻・同じ先生）は振替先にしない（7章）
+  var o = input.original;
+  if (o && c.date === o.date && c.start === o.start && c.teacherId === o.teacherId) return '元の予約と同じ枠';
   var blocking = tnBlockingStates_(input);
   var hitTeacher = input.bookings.some(function (b) {
     return b.teacherId === c.teacherId && b.date === c.date && blocking.indexOf(b.state) >= 0 && !tnIsOriginal_(input, b) && tnOverlap_(c.start, c.end, b.start, b.end);
