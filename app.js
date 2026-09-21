@@ -8,6 +8,9 @@
   var PAGE = qs.get('p') || 'book';
   var DEV = { key: qs.get('dev') || '', sub: qs.get('sub') || '' };
   var DEBUG = qs.get('debug') === '1';
+  // 通信の向き先。?api=edge を付けると、新しい土台（Supabase の Edge Function）へ。付けなければ旧環境（GAS）。
+  // 新しい土台の通し確認が済んだら、既定を入れ替える（docs/supabase-ikou.md）
+  var API_URL = (qs.get('api') === 'edge' && CFG.edgeApiUrl) ? CFG.edgeApiUrl : CFG.apiUrl;
   var API_LOG = [];
   var T0 = Date.now();
   function logApi(entry) {
@@ -93,7 +96,7 @@
       var limit = action === 'confirm' ? 40000 : 25000;
       var timedOut = false;
       var timer = ctl ? setTimeout(function () { timedOut = true; ctl.abort(); }, limit) : null;
-      return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: json, redirect: 'follow', signal: ctl ? ctl.signal : undefined })
+      return fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: json, redirect: 'follow', signal: ctl ? ctl.signal : undefined })
         .finally(function () { if (timer) clearTimeout(timer); })
         .then(function (r) { status = r.status; return r.text(); })
         .then(function (t) {
