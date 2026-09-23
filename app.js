@@ -694,7 +694,7 @@
           h('div', { class: 'when' }, [dispDate(row.date) + ' ' + hm(row.start) + '〜' + hm(row.end)]),
           h('div', { class: 'muted small' }, [row.teacherName + '先生・' + row.store]),
           row.reason ? h('div', { class: 'why' }, [row.reason]) : null,
-          row.changed ? h('div', { class: 'changed' }, ['変更済み']) : null,
+          row.changed ? h('div', { class: 'changed' }, [row.auto ? '埋まっていたため入れ替え' : '変更済み']) : null,   // 自分で変えた回と、自動で入れ替わった回を見分ける（にん 9/23）
         ]),
         h('button', { class: 'btn small sub', onclick: function () { changeMenu(i); } }, ['変更']),
       ])]);
@@ -754,7 +754,7 @@
       var label = dispDate(t.date) + ' ' + hm(t.start);
       planApi('alternatives', Object.assign({ kind: 'times', index: i, rows: B.rows }, common)).then(function (r) {
         if (r.ok && r.options && r.options.length) {
-          var o = r.options[0]; o.changed = true; o.reason = '埋まっていたため、この日の別の時間に';
+          var o = r.options[0]; o.changed = true; o.auto = true; o.reason = '埋まっていたため、この日の別の時間に';
           B.rows[i] = o; notes.push(label + ' → ' + hm(o.start)); return step(k + 1);
         }
         var dates = B.unused.slice().sort();
@@ -762,7 +762,7 @@
           if (j >= dates.length) { B.rows.splice(i, 1); notes.push(label + '：空きがなく外しました'); return step(k + 1); }
           planApi('alternatives', Object.assign({ kind: 'swap', index: i, newDate: dates[j], rows: B.rows }, common)).then(function (r2) {
             if (r2.ok && r2.row) {
-              r2.row.changed = true; r2.row.reason = '埋まっていたため、別の日に';
+              r2.row.changed = true; r2.row.auto = true; r2.row.reason = '埋まっていたため、別の日に';
               B.rows[i] = r2.row; B.unused = B.unused.filter(function (d) { return d !== dates[j]; });
               if (B.wishDates.indexOf(t.date) >= 0 && B.unused.indexOf(t.date) < 0) B.unused.push(t.date);
               notes.push(label + ' → ' + dispDate(r2.row.date) + ' ' + hm(r2.row.start)); return step(k + 1);
