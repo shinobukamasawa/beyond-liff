@@ -58,6 +58,17 @@ function bookingLimit(targetMonth, student) {
 }
 
 /**
+ * 使える回数の内訳（画面の表示用。2026-09-23 にん）
+ * 正規分 ＝ 月の回数 − その月にすでに入っている予約中の件数（0 未満にしない。使える回数を超えない）、繰越 ＝ 使える回数 − 正規分
+ * 例：残り4・月4・先使い3（翌月に3件入っている）→ 使える 5、正規分 1、繰越 4
+ */
+function countBreakdown(targetMonth, student, bookedInMonth) {
+  var limit = bookingLimit(targetMonth, student);
+  var regular = Math.max(0, Math.min(limit, Number(student.monthlyCount || 0) - Number(bookedInMonth || 0)));
+  return { limit: limit, regular: regular, carry: Math.max(0, limit - regular) };
+}
+
+/**
  * 毎月の付与（logic-nichiji 3.2）
  * 残り ＝ 残り ＋ 月の回数 − 先使い、先使い ＝ 0。繰越上限があれば min(残り, 上限＋月の回数)
  */
@@ -72,6 +83,6 @@ function monthlyGrant(student, carryLimit) {
 if (typeof module !== 'undefined') {
   module.exports = {
     ymOf: ymOf, ymAdd: ymAdd, applyMonthFor: applyMonthFor, initialGrant: initialGrant,
-    consumeColumn: consumeColumn, bookingLimit: bookingLimit, monthlyGrant: monthlyGrant,
+    consumeColumn: consumeColumn, bookingLimit: bookingLimit, countBreakdown: countBreakdown, monthlyGrant: monthlyGrant,
   };
 }

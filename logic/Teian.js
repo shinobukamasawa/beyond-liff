@@ -87,11 +87,8 @@ function tnEligibleTeachers_(input) {
 /** 2章：提案回数 N */
 function tnCount(input) {
   if (input.mode === '振替') return 1;
-  var s = input.student;
-  var booked = input.bookings.filter(function (b) {
-    return b.studentId === s.id && b.state === '予約中' && b.date.substring(0, 7) === input.targetMonth;
-  }).length;
-  return Math.min(tnLimit_(input.targetMonth, s), Math.max(1, s.monthlyCount - booked));
+  // 使える回数（その月の正規分＋繰越）をまとめて提案する（決定 A の変更。2026-09-23 にん。それまでは「月の回数まで」）
+  return Math.max(1, tnLimit_(input.targetMonth, input.student));
 }
 
 function tnBlockingStates_(input) { return input.settings.absentFreesSlot ? ['予約中'] : ['予約中', '期限後欠席']; }

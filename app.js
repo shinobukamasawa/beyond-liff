@@ -446,6 +446,21 @@
   // URL に ?local=0 を付けると、端末内の計算を使わない（比べるとき用）
   var PLAN_MAX_AGE = 10 * 60 * 1000;
   function addDaysYmd(ymd, n) { var p = ymd.split('-'); var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)); return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2); }
+  /**
+   * 使える回数の表示（正規分・繰越の内訳つき。にん 9/23）。今月は「今月あと n 回」、翌月は「○月に使える回数 n 回」
+   * 内訳は端末内の材料（plan）があるときだけ。なければ回数だけ
+   */
+  function countLabel(month, limit) {
+    var B = S.book, pst = B.plan && B.plan.student, isCur = month === B.months[0];
+    var head = isCur ? '今月あと ' : dispMonth(month) + 'に使える回数 ';
+    if (pst && typeof countBreakdown === 'function') {
+      var booked = B.plan.bookings.filter(function (b) { return b.studentId === pst.id && b.state === '予約中' && b.date.substring(0, 7) === month; }).length;
+      var bd = countBreakdown(month, pst, booked);
+      return h('div', { style: 'white-space:nowrap' }, [head, h('b', {}, [String(bd.limit)]), ' 回', h('span', { class: 'muted small' }, ['（正規分 ' + bd.regular + '・繰越 ' + bd.carry + '）'])]);
+    }
+    var n = limit !== undefined ? limit : S.current.remaining;
+    return h('div', { style: 'white-space:nowrap' }, [head, h('b', {}, [String(n)]), ' 回']);
+  }
   function sortRows() { if (S.book && S.book.rows) S.book.rows.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start; }); }
   function planSet(plan) {
     var B = S.book;
@@ -651,9 +666,7 @@
 
     var body = [
       h('button', { class: 'btn ghost', style: 'text-align:left;padding:4px 0', onclick: drawTeachers }, ['← 先生を選び直す']),
-      h('div', { class: 'row between', style: 'flex-wrap:wrap' }, [h('div', { style: 'white-space:nowrap' }, ['希望日：', h('b', {}, [String(B.wishDates.length)]), '日を選択中']), (B.month !== B.months[0] && r.limit !== undefined)
-        ? h('div', { style: 'white-space:nowrap' }, [dispMonth(B.month) + 'に使える回数 ', h('b', {}, [String(r.limit)]), ' 回'])   // 来月を見ているときに「今月あと0回」と出すと、選べるのに0回に見える
-        : h('div', { style: 'white-space:nowrap' }, ['今月あと ', h('b', {}, [String(S.current.remaining)]), ' 回'])]),
+      h('div', { class: 'row between', style: 'flex-wrap:wrap' }, [h('div', { style: 'white-space:nowrap' }, ['希望日：', h('b', {}, [String(B.wishDates.length)]), '日を選択中']), countLabel(B.month, r.limit)]),
       r.blocked ? msg(r.blocked, 'warn') : null,
       (B.autoNext && B.month === B.months[1] && !r.blocked) ? msg(dispMonth(B.months[0]) + '分の回数はすべてご予約済みのため、' + dispMonth(B.month) + 'を表示しています。', 'info') : null,
       h('div', { class: 'chips' }, [
@@ -702,9 +715,6 @@
     var body = [
       h('button', { class: 'btn ghost', style: 'text-align:left;padding:4px 0', onclick: drawCalendar }, ['← 希望日を選び直す']),
       h('p', {}, [B.mode === '振替' ? '振替先としてこの回をご提案します' : 'ご希望の' + B.wishDates.length + '日から、この' + B.rows.length + '回をご提案します']),
-      // 1回の提案は月の回数まで（決定 A）。繰越分が残っているときは、その旨を出す（にん 9/23：使える回数と提案の数が合わずに見えたため）
-      (function () { var pst = B.plan && B.plan.student; if (B.mode === '振替' || !pst || typeof bookingLimit !== 'function') return null; var lim = bookingLimit(B.month, pst); if (lim <= B.n) return null;
-        return h('p', { class: 'muted small' }, ['1回の提案は月の回数（' + pst.monthlyCount + '回）までです。繰越分（' + dispMonth(B.month) + 'に使える回数はあと ' + lim + ' 回）は、この予約のあとにもう一度予約画面から追加できます。']); })(),
       B.short ? msg(B.short, 'warn') : null,
       B.notice ? msg(B.notice, 'info') : null,
     ].concat(items).concat([h('p', { class: 'muted small' }, ['「変更」を押すと、その日の別の時間・別の先生や、選ばれなかった候補日と入れ替えられます。'])]);
@@ -812,9 +822,8 @@
     var lines = rows.map(function (r) { return h('div', { style: 'margin:3px 0' }, [h('div', { style: 'white-space:nowrap' }, [dispDate(r.date) + ' ' + hm(r.start) + '〜' + hm(r.end)]), h('div', { class: 'muted small' }, [r.teacherName + '先生・' + r.store])]); });
     // 翌月分は「先使い回数」で消費するので、「残り」ではなく「その月に使える回数」で見せる（今月分は「残り」）
     var m0 = rows[0].date.substring(0, 7), pst = B.plan && B.plan.student;
-    var countText = (pst && typeof bookingLimit === 'function' && m0 !== todayYmd().substring(0, 7))
-      ? dispMonth(m0) + 'に使える回数 ' + bookingLimit(m0, pst) + ' → ' + Math.max(0, bookingLimit(m0, pst) - rows.length)
-      : '残り ' + S.current.remaining + ' → ' + Math.max(0, S.current.remaining - rows.length);
+    var lim0 = (pst && typeof bookingLimit === 'function') ? bookingLimit(m0, pst) : S.current.remaining;
+    var countText = (m0 !== todayYmd().substring(0, 7) ? dispMonth(m0) + 'に使える回数 ' : '今月あと ') + lim0 + ' → ' + Math.max(0, lim0 - rows.length);
     var body = [h('p', {}, ['この内容でよろしいですか？'])];
     if (B.mode === '振替') {
       body.push(h('div', { class: 'card' }, [h('div', { class: 'muted small' }, ['元の予約']), h('div', {}, [dispDate(B.original.date) + ' ' + hm(B.original.start) + '　' + B.original.teacherName + '先生']), h('div', { style: 'text-align:center;color:#2b5d8c' }, ['↓']), h('div', { class: 'muted small' }, ['新しい予約']), lines[0]]));
