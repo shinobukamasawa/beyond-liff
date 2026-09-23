@@ -820,7 +820,7 @@
       body.push(h('div', { class: 'card' }, [h('div', { class: 'muted small' }, ['元の予約']), h('div', {}, [dispDate(B.original.date) + ' ' + hm(B.original.start) + '　' + B.original.teacherName + '先生']), h('div', { style: 'text-align:center;color:#2b5d8c' }, ['↓']), h('div', { class: 'muted small' }, ['新しい予約']), lines[0]]));
       body.push(h('p', { class: 'muted small' }, ['回数は動きません（1回消えて1回入るため）。']));
     } else {
-      body.push(h('div', { class: 'card' }, lines.concat([h('div', { class: 'row between', style: 'margin-top:8px' }, [h('span', {}, ['使う回数']), h('b', {}, [rows.length + '回（' + countText + '）'])])])));
+      body.push(h('div', { class: 'card' }, lines.concat([h('div', { class: 'row between', style: 'margin-top:8px' }, [h('span', { style: 'white-space:nowrap;flex:none' }, ['使う回数']), h('b', { style: 'text-align:right' }, [rows.length + '回（' + countText + '）'])])])));
       body.push(h('div', { class: 'field' }, [h('label', {}, ['ご要望・ご相談（任意。運営に届きます。予約内容には反映されません）']), memo]));
     }
     body.push(msg('振替・キャンセルは' + S.deadlineText + 'までです。それ以降は回数を消化します。', 'warn'));
