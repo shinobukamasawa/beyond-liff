@@ -8,9 +8,9 @@
   var PAGE = qs.get('p') || 'book';
   var DEV = { key: qs.get('dev') || '', sub: qs.get('sub') || '' };
   var DEBUG = qs.get('debug') === '1';
-  // 通信の向き先。?api=edge を付けると、新しい土台（Supabase の Edge Function）へ。付けなければ旧環境（GAS）。
+  // 通信の向き先。既定は新しい土台（Supabase の Edge Function。2026-09-23 に切り替え）。?api=gas を付けたときだけ旧環境（GAS）へ。
   // 新しい土台の通し確認が済んだら、既定を入れ替える（docs/supabase-ikou.md）
-  var API_URL = (qs.get('api') === 'edge' && CFG.edgeApiUrl) ? CFG.edgeApiUrl : CFG.apiUrl;
+  var API_URL = (qs.get('api') === 'gas' || !CFG.edgeApiUrl) ? CFG.apiUrl : CFG.edgeApiUrl;
   var API_LOG = [];
   var T0 = Date.now();
   function logApi(entry) {
