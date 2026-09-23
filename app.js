@@ -702,6 +702,9 @@
     var body = [
       h('button', { class: 'btn ghost', style: 'text-align:left;padding:4px 0', onclick: drawCalendar }, ['← 希望日を選び直す']),
       h('p', {}, [B.mode === '振替' ? '振替先としてこの回をご提案します' : 'ご希望の' + B.wishDates.length + '日から、この' + B.rows.length + '回をご提案します']),
+      // 1回の提案は月の回数まで（決定 A）。繰越分が残っているときは、その旨を出す（にん 9/23：使える回数と提案の数が合わずに見えたため）
+      (function () { var pst = B.plan && B.plan.student; if (B.mode === '振替' || !pst || typeof bookingLimit !== 'function') return null; var lim = bookingLimit(B.month, pst); if (lim <= B.n) return null;
+        return h('p', { class: 'muted small' }, ['1回の提案は月の回数（' + pst.monthlyCount + '回）までです。繰越分（' + dispMonth(B.month) + 'に使える回数はあと ' + lim + ' 回）は、この予約のあとにもう一度予約画面から追加できます。']); })(),
       B.short ? msg(B.short, 'warn') : null,
       B.notice ? msg(B.notice, 'info') : null,
     ].concat(items).concat([h('p', { class: 'muted small' }, ['「変更」を押すと、その日の別の時間・別の先生や、選ばれなかった候補日と入れ替えられます。'])]);
