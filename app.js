@@ -682,7 +682,7 @@
     busy('ご提案', '空きを探しています…');
     planApi('propose', { studentId: S.current.id, teacherIds: B.teacherIds, wishDates: B.wishDates, wishBands: B.wishBands, month: B.month, originalId: B.original ? B.original.id : '' }).then(function (r) {
       if (!r.ok) { render('ご提案', [msg(r.error, 'err'), h('button', { class: 'btn sub', onclick: drawCalendar }, ['← 希望日を選び直す'])]); return; }
-      B.rows = r.rows; B.unused = r.unusedWishDates; B.n = r.n; B.short = r.message; S.current = r.student;
+      B.rows = r.rows; B.unused = r.unusedWishDates; B.n = r.n; B.short = r.message; B.notice = ''; S.current = r.student;
       drawProposal();
     });
   }
@@ -703,6 +703,7 @@
       h('button', { class: 'btn ghost', style: 'text-align:left;padding:4px 0', onclick: drawCalendar }, ['← 希望日を選び直す']),
       h('p', {}, [B.mode === '振替' ? '振替先としてこの回をご提案します' : 'ご希望の' + B.wishDates.length + '日から、この' + B.rows.length + '回をご提案します']),
       B.short ? msg(B.short, 'warn') : null,
+      B.notice ? msg(B.notice, 'info') : null,
     ].concat(items).concat([h('p', { class: 'muted small' }, ['「変更」を押すと、その日の別の時間・別の先生や、選ばれなかった候補日と入れ替えられます。'])]);
     render('ご提案', body, [h('button', { class: 'btn', disabled: !B.rows.length, onclick: screenConfirm }, [B.mode === '振替' ? 'この回に振り替える' : 'この' + B.rows.length + '回で予約する'])]);
   }
@@ -726,6 +727,50 @@
     var B = S.book;
     if (!planOk() || !PLAN_ACTIONS.alternatives) return true;
     try { var r = PLAN_ACTIONS.alternatives({ kind: 'teachers', index: i, rows: B.rows, studentId: S.current.id, teacherIds: B.teacherIds, wishDates: B.wishDates, wishBands: B.wishBands, month: B.month, originalId: B.original ? B.original.id : '' }); return !!(r && r.ok && r.options && r.options.length); } catch (e) { return true; }
+  }
+  /**
+   * 確定で埋まっていた回だけを入れ替える（ほかの回の手直しは残す。にん 9/23）。
+   * 同じ日の別の時間 → なければ選ばれなかった候補日 → なければ外す。何をどう変えたかを提案の上に出す
+   */
+  function replaceFailed(failed, sortedRows) {
+    var B = S.book, notes = [];
+    var common = { studentId: S.current.id, teacherIds: B.teacherIds, wishDates: B.wishDates, wishBands: B.wishBands, month: B.month, originalId: B.original ? B.original.id : '' };
+    var targets = failed.map(function (f) { return sortedRows[f.index]; }).filter(Boolean);
+    busy('ご提案', '空いている時間を探しています…');
+    var finish = function () {
+      sortRows();
+      B.notice = notes.length ? '埋まっていた回を入れ替えました：' + notes.join('／') + '。ほかの回はそのままです。' : '';
+      if (!B.rows.length) { render('ご提案', [msg('空きがなく、予約する回がなくなりました。希望日を選び直してください。', 'warn'), h('button', { class: 'btn', onclick: drawCalendar }, ['← 希望日を選び直す'])]); return; }
+      drawProposal();
+    };
+    var step = function (k) {
+      if (k >= targets.length) return finish();
+      var t = targets[k], i = -1;
+      B.rows.forEach(function (row, idx) { if (i < 0 && row.date === t.date && row.start === t.start && row.teacherId === t.teacherId) i = idx; });
+      if (i < 0) return step(k + 1);
+      var label = dispDate(t.date) + ' ' + hm(t.start);
+      planApi('alternatives', Object.assign({ kind: 'times', index: i, rows: B.rows }, common)).then(function (r) {
+        if (r.ok && r.options && r.options.length) {
+          var o = r.options[0]; o.changed = true; o.reason = '埋まっていたため、この日の別の時間に';
+          B.rows[i] = o; notes.push(label + ' → ' + hm(o.start)); return step(k + 1);
+        }
+        var dates = B.unused.slice().sort();
+        var trySwap = function (j) {
+          if (j >= dates.length) { B.rows.splice(i, 1); notes.push(label + '：空きがなく外しました'); return step(k + 1); }
+          planApi('alternatives', Object.assign({ kind: 'swap', index: i, newDate: dates[j], rows: B.rows }, common)).then(function (r2) {
+            if (r2.ok && r2.row) {
+              r2.row.changed = true; r2.row.reason = '埋まっていたため、別の日に';
+              B.rows[i] = r2.row; B.unused = B.unused.filter(function (d) { return d !== dates[j]; });
+              if (B.wishDates.indexOf(t.date) >= 0 && B.unused.indexOf(t.date) < 0) B.unused.push(t.date);
+              notes.push(label + ' → ' + dispDate(r2.row.date) + ' ' + hm(r2.row.start)); return step(k + 1);
+            }
+            trySwap(j + 1);
+          });
+        };
+        trySwap(0);
+      });
+    };
+    step(0);
   }
   function alternatives(kind, i) {
     var B = S.book;
@@ -793,7 +838,7 @@
           // 端末内の材料に「埋まった枠」を足し、空き状況の先読みを捨てて、提案を出し直す（同じ枠がまた出ないように）
           if (B.plan) failed.forEach(function (f) { var row = rows[f.index]; if (row) B.plan.bookings.push({ id: '', studentId: '', teacherId: row.teacherId, date: row.date, start: row.start, end: row.end, state: '予約中' }); });
           B.cal = {}; B.pre = null;
-          body.push(h('button', { class: 'btn', onclick: screenProposal }, ['← 埋まった枠を除いて、提案を出し直す']));
+          body.push(h('button', { class: 'btn', onclick: function () { replaceFailed(failed, rows); } }, ['← 埋まった回だけ入れ替える（ほかの回はそのまま）']));
         } else body.push(h('button', { class: 'btn', onclick: drawProposal }, ['← 提案に戻って選び直す']));
         render('予約内容の確認', body); return;
       }
