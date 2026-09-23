@@ -80,3 +80,13 @@ html, body { margin: 0; padding: 0; background: #f4f6f9; color: var(--ink); font
 .opt.danger { color: var(--err); }
 .list-item .btns { display: flex; gap: 8px; margin-top: 8px; }
 .list-item .btns .btn { flex: 1; }
+
+/* 2026-09-23 にんのスマホ確認より：折り返しと受付終了の印 */
+.header .brand { white-space: nowrap; margin-left: 8px; flex: none; }
+.header .title > span:first-child { min-width: 0; }
+.prop .grow { min-width: 0; }
+.prop .when { white-space: nowrap; }
+.cal .d.closed { color: #c0c6cd; }
+.cal .d.closed .mk { color: #c0c6cd; }
+.sheet .panel { max-height: 85vh; overscroll-behavior: contain; }
+.sheet .panel h4 { padding-top: 2px; }

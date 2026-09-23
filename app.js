@@ -445,6 +445,8 @@
   // 材料は届いた時点の写しなので、10分を過ぎたら使わずに GAS に聞く。確定のときは GAS が最新のデータで再チェックする。
   // URL に ?local=0 を付けると、端末内の計算を使わない（比べるとき用）
   var PLAN_MAX_AGE = 10 * 60 * 1000;
+  function addDaysYmd(ymd, n) { var p = ymd.split('-'); var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)); return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2); }
+  function sortRows() { if (S.book && S.book.rows) S.book.rows.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start; }); }
   function planSet(plan) {
     var B = S.book;
     B.plan = null;
@@ -492,8 +494,9 @@
       input.slots.forEach(function (sl) { if (input.teacherIds.indexOf(sl.teacherId) >= 0 && sl.store === s.store) hasSlot[sl.date] = true; });
       var perDay = {};
       tnCandidates(input, dates).forEach(function (c) { perDay[c.date] = (perDay[c.date] || 0) + 1; });
-      var days = {}, today = input.now.ymd;
-      dates.forEach(function (dt) { var n = perDay[dt] || 0; days[dt] = dt < today ? 'past' : n >= 3 ? 'ok' : n > 0 ? 'few' : hasSlot[dt] ? 'full' : 'none'; });
+      var days = {}, today = input.now.ymd, st = input.settings;
+      var closed = function (dt) { var dl = addDaysYmd(dt, -st.minLeadDays); return today > dl || (today === dl && input.now.minutes >= st.minLeadMinutes); };   // 最短受付（前日10:00）を過ぎた日
+      dates.forEach(function (dt) { var n = perDay[dt] || 0; days[dt] = dt < today ? 'past' : closed(dt) ? (hasSlot[dt] ? 'closed' : 'none') : n >= 3 ? 'ok' : n > 0 ? 'few' : hasSlot[dt] ? 'full' : 'none'; });
       return { ok: true, month: month, days: days, count: tnCount(input), limit: bookingLimit(month, s) };
     },
     propose: function (p) {
@@ -632,9 +635,9 @@
     for (var i = 0; i < first.getDay(); i++) grid.push(h('div'));
     Object.keys(r.days).sort().forEach(function (ymd) {
       var st = r.days[ymd], on = B.wishDates.indexOf(ymd) >= 0, past = ymd < today || st === 'past';
-      var mk = st === 'ok' ? '○' : st === 'few' ? '△' : st === 'full' ? '×' : '';
+      var mk = st === 'ok' ? '○' : st === 'few' ? '△' : st === 'full' ? '×' : st === 'closed' ? '−' : '';
       var d = h('div', { class: 'd ' + st + (on ? ' on' : '') + (past ? ' past' : ''), onclick: function () {
-        if (st === 'none' || st === 'full' || st === 'past' || past) return;
+        if (st === 'none' || st === 'full' || st === 'closed' || st === 'past' || past) return;
         if (on) B.wishDates = B.wishDates.filter(function (x) { return x !== ymd; }); else B.wishDates.push(ymd);
         drawCalendar();
       } }, [h('span', {}, [String(Number(ymd.substring(8)))]), h('span', { class: 'mk' }, [mk])]);
@@ -648,9 +651,9 @@
 
     var body = [
       h('button', { class: 'btn ghost', style: 'text-align:left;padding:4px 0', onclick: drawTeachers }, ['← 先生を選び直す']),
-      h('div', { class: 'row between' }, [h('div', {}, ['希望日：', h('b', {}, [String(B.wishDates.length)]), '日を選択中']), (B.month !== B.months[0] && r.limit !== undefined)
-        ? h('div', {}, [dispMonth(B.month) + 'に使える回数 ', h('b', {}, [String(r.limit)]), ' 回'])   // 来月を見ているときに「今月あと0回」と出すと、選べるのに0回に見える
-        : h('div', {}, ['今月あと ', h('b', {}, [String(S.current.remaining)]), ' 回'])]),
+      h('div', { class: 'row between', style: 'flex-wrap:wrap' }, [h('div', { style: 'white-space:nowrap' }, ['希望日：', h('b', {}, [String(B.wishDates.length)]), '日を選択中']), (B.month !== B.months[0] && r.limit !== undefined)
+        ? h('div', { style: 'white-space:nowrap' }, [dispMonth(B.month) + 'に使える回数 ', h('b', {}, [String(r.limit)]), ' 回'])   // 来月を見ているときに「今月あと0回」と出すと、選べるのに0回に見える
+        : h('div', { style: 'white-space:nowrap' }, ['今月あと ', h('b', {}, [String(S.current.remaining)]), ' 回'])]),
       r.blocked ? msg(r.blocked, 'warn') : null,
       (B.autoNext && B.month === B.months[1] && !r.blocked) ? msg(dispMonth(B.months[0]) + '分の回数はすべてご予約済みのため、' + dispMonth(B.month) + 'を表示しています。', 'info') : null,
       h('div', { class: 'chips' }, [
@@ -663,7 +666,7 @@
         h('button', { disabled: mi >= B.months.length - 1, onclick: function () { B.month = B.months[mi + 1]; B.cal[B.month] ? drawCalendar() : screenCalendar(); } }, ['›']),
       ]),
       h('div', { class: 'cal' }, grid),
-      h('div', { class: 'legend' }, ['○ 空きあり　△ 残りわずか　× 満席　印なし＝出勤なし']),
+      h('div', { class: 'legend' }, ['○ 空きあり　△ 残りわずか　× 満席　− 受付終了　印なし＝出勤なし']),
       h('div', { class: 'muted small' }, ['時間帯の希望（任意）']),
       h('div', { class: 'chips' }, bands),
       B.months.length === 1 ? h('p', { class: 'muted small' }, ['翌月分の予約は ' + B.releaseDay + '日 ' + B.releaseTime + ' から受け付けます']) : null,
@@ -710,13 +713,19 @@
       { label: 'この日の別の時間', onclick: function () { alternatives('times', i); } },
     ];
     if (B.unused.length) opts.push({ label: '別の候補日と入れ替える', onclick: function () { swapMenu(i); } });
-    if (B.teacherIds.length > 1) opts.push({ label: '別の先生で', onclick: function () { alternatives('teachers', i); } });
+    if (B.teacherIds.length > 1 && hasAltTeachers(i)) opts.push({ label: '別の先生で', onclick: function () { alternatives('teachers', i); } });
     if (B.mode !== '振替') opts.push({ label: 'この回はいらない', danger: true, onclick: function () {
       B.rows.splice(i, 1);
       if (!B.rows.length) { render('ご提案', [msg('予約する回がありません。希望日を選び直してください。', 'warn'), h('button', { class: 'btn', onclick: drawCalendar }, ['← 希望日を選び直す'])]); return; }
       drawProposal();
     } });
     sheet(dispDate(row.date) + ' ' + hm(row.start) + ' を変更', opts);
+  }
+  /** 端末内で計算できるときは、別の先生の候補があるかを先に見る（なければメニューに出さない）。計算できないときは出す */
+  function hasAltTeachers(i) {
+    var B = S.book;
+    if (!planOk() || !PLAN_ACTIONS.alternatives) return true;
+    try { var r = PLAN_ACTIONS.alternatives({ kind: 'teachers', index: i, rows: B.rows, studentId: S.current.id, teacherIds: B.teacherIds, wishDates: B.wishDates, wishBands: B.wishBands, month: B.month, originalId: B.original ? B.original.id : '' }); return !!(r && r.ok && r.options && r.options.length); } catch (e) { return true; }
   }
   function alternatives(kind, i) {
     var B = S.book;
@@ -728,7 +737,7 @@
       sheet(kind === 'times' ? 'この日の別の時間' : '別の先生で', r.options.map(function (o) {
         return { label: (kind === 'teachers' ? o.teacherName + '先生　' : '') + hm(o.start) + '〜' + hm(o.end) + (o.reason ? '　' + o.reason : ''), onclick: function () {
           var cur = B.rows[i]; if (B.wishDates.indexOf(cur.date) >= 0 && cur.date !== o.date && B.unused.indexOf(cur.date) < 0) B.unused.push(cur.date);
-          o.changed = true; B.rows[i] = o; B.unused = B.unused.filter(function (d) { return d !== o.date; }); drawProposal();
+          o.changed = true; B.rows[i] = o; B.unused = B.unused.filter(function (d) { return d !== o.date; }); sortRows(); drawProposal();
         } };
       }));
     });
@@ -742,7 +751,7 @@
           drawProposal();
           if (!r.ok) { sheet(r.error, []); return; }
           var cur = B.rows[i]; if (B.wishDates.indexOf(cur.date) >= 0 && B.unused.indexOf(cur.date) < 0) B.unused.push(cur.date);
-          B.rows[i] = r.row; B.unused = B.unused.filter(function (x) { return x !== d; }); drawProposal();
+          B.rows[i] = r.row; B.unused = B.unused.filter(function (x) { return x !== d; }); sortRows(); drawProposal();
         });
       } };
     }));
@@ -752,13 +761,18 @@
     var B = S.book;
     var memo = h('textarea', { placeholder: '例：来月から木曜希望です' });
     var rows = B.rows.slice().sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start; });
-    var lines = rows.map(function (r) { return h('div', {}, [dispDate(r.date) + ' ' + hm(r.start) + '〜' + hm(r.end) + '　' + r.teacherName + '先生・' + r.store]); });
+    var lines = rows.map(function (r) { return h('div', { style: 'margin:3px 0' }, [h('div', { style: 'white-space:nowrap' }, [dispDate(r.date) + ' ' + hm(r.start) + '〜' + hm(r.end)]), h('div', { class: 'muted small' }, [r.teacherName + '先生・' + r.store])]); });
+    // 翌月分は「先使い回数」で消費するので、「残り」ではなく「その月に使える回数」で見せる（今月分は「残り」）
+    var m0 = rows[0].date.substring(0, 7), pst = B.plan && B.plan.student;
+    var countText = (pst && typeof bookingLimit === 'function' && m0 !== todayYmd().substring(0, 7))
+      ? dispMonth(m0) + 'に使える回数 ' + bookingLimit(m0, pst) + ' → ' + Math.max(0, bookingLimit(m0, pst) - rows.length)
+      : '残り ' + S.current.remaining + ' → ' + Math.max(0, S.current.remaining - rows.length);
     var body = [h('p', {}, ['この内容でよろしいですか？'])];
     if (B.mode === '振替') {
       body.push(h('div', { class: 'card' }, [h('div', { class: 'muted small' }, ['元の予約']), h('div', {}, [dispDate(B.original.date) + ' ' + hm(B.original.start) + '　' + B.original.teacherName + '先生']), h('div', { style: 'text-align:center;color:#2b5d8c' }, ['↓']), h('div', { class: 'muted small' }, ['新しい予約']), lines[0]]));
       body.push(h('p', { class: 'muted small' }, ['回数は動きません（1回消えて1回入るため）。']));
     } else {
-      body.push(h('div', { class: 'card' }, lines.concat([h('div', { class: 'row between', style: 'margin-top:8px' }, [h('span', {}, ['使う回数']), h('b', {}, [rows.length + '回（残り ' + S.current.remaining + ' → ' + Math.max(0, S.current.remaining - rows.length) + '）'])])])));
+      body.push(h('div', { class: 'card' }, lines.concat([h('div', { class: 'row between', style: 'margin-top:8px' }, [h('span', {}, ['使う回数']), h('b', {}, [rows.length + '回（' + countText + '）'])])])));
       body.push(h('div', { class: 'field' }, [h('label', {}, ['ご要望・ご相談（任意。運営に届きます。予約内容には反映されません）']), memo]));
     }
     body.push(msg('振替・キャンセルは' + S.deadlineText + 'までです。それ以降は回数を消化します。', 'warn'));
@@ -773,8 +787,14 @@
     api('confirm', { studentId: S.current.id, rows: rows, memo: memoText, originalId: B.original ? B.original.id : '' }).then(function (r) {
       if (!r.ok) {
         var body = [msg(r.error, 'err')];
-        if (r.recheck && r.recheck.failed && r.recheck.failed.length) body.push(h('p', { class: 'muted small' }, ['埋まってしまった回：' + r.recheck.failed.map(function (f) { return dispDate(rows[f.index].date) + ' ' + hm(rows[f.index].start); }).join('、')]));
-        body.push(h('button', { class: 'btn', onclick: drawProposal }, ['← 提案に戻って選び直す']));
+        var failed = (r.recheck && r.recheck.failed) || [];
+        if (failed.length) {
+          body.push(h('p', { class: 'muted small' }, ['埋まってしまった回：' + failed.map(function (f) { return rows[f.index] ? dispDate(rows[f.index].date) + ' ' + hm(rows[f.index].start) : ''; }).join('、')]));
+          // 端末内の材料に「埋まった枠」を足し、空き状況の先読みを捨てて、提案を出し直す（同じ枠がまた出ないように）
+          if (B.plan) failed.forEach(function (f) { var row = rows[f.index]; if (row) B.plan.bookings.push({ id: '', studentId: '', teacherId: row.teacherId, date: row.date, start: row.start, end: row.end, state: '予約中' }); });
+          B.cal = {}; B.pre = null;
+          body.push(h('button', { class: 'btn', onclick: screenProposal }, ['← 埋まった枠を除いて、提案を出し直す']));
+        } else body.push(h('button', { class: 'btn', onclick: drawProposal }, ['← 提案に戻って選び直す']));
         render('予約内容の確認', body); return;
       }
       S.current = r.student;
@@ -789,6 +809,9 @@
         h('div', { class: 'card' }, okRows.map(function (x) { var tr = rows.filter(function (q) { return q.date === x.date && q.start === x.start; })[0]; return h('div', {}, [dispDate(x.date) + ' ' + hm(x.start) + '　' + (tr ? tr.teacherName + '先生' : '')]); })),
         ng.length ? msg('登録できなかった回があります：' + ng.map(function (x) { return dispDate(x.date) + ' ' + hm(x.start); }).join('、') + '\nもう一度予約画面からお試しください。', 'warn') : null,
         h('div', { class: 'stat' }, [h('span', {}, ['今月あと']), h('span', {}, [h('b', {}, [String(r.student.remaining)]), ' 回'])]),
+        (function () { var m = rows[0].date.substring(0, 7), pst = B.plan && B.plan.student; if (!(pst && typeof bookingLimit === 'function' && m !== todayYmd().substring(0, 7))) return null;
+          var lim = bookingLimit(m, { remaining: r.student.remaining, advance: r.student.advance, monthlyCount: r.student.monthlyCount, grantedMonth: pst.grantedMonth });
+          return h('div', { class: 'muted small' }, [dispMonth(m) + 'に使える回数：あと ' + lim + ' 回（' + dispMonth(m) + '分は先に使う形で、今月の回数は減りません）']); })(),
         h('button', { class: 'btn', onclick: goList }, ['予約の確認・振替へ']),
         h('button', { class: 'btn sub', onclick: function () { if (window.liff && liff.closeWindow) liff.closeWindow(); } }, ['閉じる']),
       ]);
