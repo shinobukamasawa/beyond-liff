@@ -140,7 +140,8 @@
     }
     // 白いヘッダ（2026-09-24 にん決定。全画面共通）：小さく「レッスン予約 ビヨンド」、大きく画面名、その下に操作中の生徒。右に三本線
     app.appendChild(h('div', { class: 'header' }, [
-      h('div', { class: 'hl' }, [h('div', { class: 'brand' }, ['レッスン予約 ' + CFG.schoolName]), h('div', { class: 'title' }, [title]), who]),
+      // 小さい「レッスン予約 ビヨンド」は、LINE の中では出さない（LINE のブラウザが同じ題名を上に出して二重になる。9/24 にん）
+      h('div', { class: 'hl' }, [inLine() ? null : h('div', { class: 'brand' }, ['レッスン予約 ' + CFG.schoolName]), h('div', { class: 'title' }, [title]), who]),
       (S.current && !(opts && opts.noWho)) ? h('button', { class: 'menu-btn', onclick: showMenu, 'aria-label': 'メニュー' }, [h('span', { class: 'ic', html: ICON.menu }), 'メニュー']) : null,
     ]));
     app.appendChild(h('div', { class: 'body' }, bodyEls));
@@ -333,6 +334,7 @@
     calSmall: '<svg viewBox="0 0 28 28" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="22" height="19" rx="3"/><path d="M3 11h22M9 3v4M19 3v4"/><path d="M8 15h2M13 15h2M18 15h2M8 19h2M13 19h2" stroke-width="2.4"/></svg>',
     chev: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
   };
+  function inLine() { try { return !!(window.liff && liff.isInClient && liff.isInClient()); } catch (e) { return false; } }
   function dispDateLong(ymd) { var d = ymdToDate(ymd); return (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WD[d.getDay()] + '）'; }
   function lastDayOf(ym) { var p = ym.split('-'); return new Date(+p[0], +p[1], 0).getDate(); }
   /**
