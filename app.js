@@ -140,8 +140,8 @@
     }
     // 白いヘッダ（2026-09-24 にん決定。全画面共通）：小さく「レッスン予約 ビヨンド」、大きく画面名、その下に操作中の生徒。右に三本線
     app.appendChild(h('div', { class: 'header' }, [
-      // 小さい「レッスン予約 ビヨンド」は、LINE の中では出さない（LINE のブラウザが同じ題名を上に出して二重になる。9/24 にん）
-      h('div', { class: 'hl' }, [inLine() ? null : h('div', { class: 'brand' }, ['レッスン予約 ' + CFG.schoolName]), h('div', { class: 'title' }, [title]), who]),
+      // 小さい「レッスン予約 ビヨンド」は出さない（LINE のブラウザが同じ題名を上に出して二重になる。9/24 にん）
+      h('div', { class: 'hl' }, [h('div', { class: 'title' }, [title]), who]),
       (S.current && !(opts && opts.noWho)) ? h('button', { class: 'menu-btn', onclick: showMenu, 'aria-label': 'メニュー' }, [h('span', { class: 'ic', html: ICON.menu }), 'メニュー']) : null,
     ]));
     app.appendChild(h('div', { class: 'body' }, bodyEls));
