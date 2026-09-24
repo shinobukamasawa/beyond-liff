@@ -5,7 +5,7 @@
   var CFG = window.BEYOND_CONFIG;
   var app = document.getElementById('app');
   var qs = new URLSearchParams(location.search);
-  var PAGE = qs.get('p') || 'book';
+  var PAGE = qs.get('p') || 'home';   // 入口は1つ（ホーム。2026-09-24 にん決定）。p=book/list/count/contact は古いリンク用に残す
   var DEV = { key: qs.get('dev') || '', sub: qs.get('sub') || '' };
   var DEBUG = qs.get('debug') === '1';
   // 通信の向き先。既定は新しい土台（Supabase の Edge Function。2026-09-23 に切り替え）。?api=gas を付けたときだけ旧環境（GAS）へ。
@@ -37,7 +37,7 @@
       return '+' + ((e.at - T0) / 1000).toFixed(1) + 's ' + e.action + (e.bg ? '(先読み)' : '') + retry + has404 + ' 往復' + e.ms + gas + marks + (e.error ? ' !' + e.error : '');
     }).join('\n');
   }
-  var S = { idToken: '', linked: [], current: null, contactText: '', deadlineText: '', book: null };
+  var S = { idToken: '', linked: [], current: null, contactText: '', deadlineText: '', book: null, page: '' };   // page：いま出している画面（三本線の「ホームへ」の出し分け）
   var WD = ['日', '月', '火', '水', '木', '金', '土'];
 
   // ---------- 便利関数 ----------
@@ -132,13 +132,11 @@
     app.innerHTML = '';
     var who = null;
     if (S.current && !(opts && opts.noWho)) {
-      var multi = S.linked.length > 1;
-      // 1人だけのときは切り替えのボタンを出さない（決定 R）。ただし、下の子が後から入会したときの入口として、
-      // 名前のところを押せるようにしておく（開くと「もう1人登録する」だけが出る。2026-09-20 にん決定）
+      // 名前と三本線（お問い合わせ／切り替え・もう1人登録／ホームへ。2026-09-24 にん決定）。
+      // 1人だけのときは切り替えを出さず「もう1人登録する」だけ（決定 R）
       who = h('div', { class: 'who' }, [
-        multi ? h('span', {}, [given() + 'さんとして操作中'])
-          : h('span', { class: 'who-tap', role: 'button', onclick: showSwitcher }, [given() + 'さんとして操作中', h('span', { class: 'who-mark' }, [' ▾'])]),
-        multi ? h('button', { onclick: showSwitcher }, ['切り替え ▼']) : null,
+        h('span', {}, [given() + 'さんとして操作中']),
+        h('button', { class: 'menu-btn', onclick: showMenu, 'aria-label': 'メニュー' }, ['☰ メニュー']),
       ]);
     } else if (S.book && S.book.provisional && !(opts && opts.noWho)) {
       who = h('div', { class: 'who' }, [h('span', {}, ['最新の情報を確認しています…'])]);
@@ -189,6 +187,15 @@
     });
     opts.push({ label: '＋ もう1人登録する', onclick: function () { screenRegister(true); } });
     sheet('操作する生徒さんを選ぶ', opts);
+  }
+  /** 三本線のメニュー（ヘッダ）。ホーム以外では「ホームへ」を先頭に */
+  function showMenu() {
+    var opts = [];
+    if (S.page !== 'home') opts.push({ label: '⌂ ホームへ', onclick: goHome });
+    opts.push({ label: 'お問い合わせ', onclick: screenContact });
+    if (S.linked.length > 1) opts.push({ label: 'お子さんを切り替える（いま：' + given() + 'さん）', onclick: showSwitcher });
+    else opts.push({ label: '＋ もう1人登録する（ご兄弟で同じ LINE をお使いの場合）', onclick: function () { screenRegister(true); } });
+    sheet('メニュー', opts);
   }
 
   // ---------- 起動 ----------
@@ -257,8 +264,8 @@
     if (!S.current) return screenRegister(false);
     if (S.current.status === '退会') return screenError('ご利用できる生徒さんがいません。お問い合わせください。');
     if (PAGE === 'list') return screenList(pre.list);
-    if (PAGE === 'count') return screenCount(pre.count);
-    return startBooking(null, pre.book);
+    if (PAGE === 'book') return startBooking(null, pre.book);
+    return screenHome(pre.count);   // home・count・それ以外
   }
 
   /**
@@ -320,40 +327,61 @@
     return msg('休会中です。ご予約は再開後にできます（回数は保持されています）。', 'info');
   }
 
-  // ---------- 残り回数 ----------
-  function screenCount(pre) {
-    if (!pre) busy('残り回数', '読み込み中…');
+  // ---------- ホーム（残り回数＋これからの予約＋ボタン2つ。2026-09-24 にん決定。旧「残り回数」の画面をそのまま使う） ----------
+  function screenHome(pre) {
+    S.page = 'home';
+    if (!pre) busy('ホーム', '読み込み中…');
     (pre ? Promise.resolve(pre) : api('count', { studentId: S.current.id })).then(function (r) {
-      if (!r.ok) return screenError(r.error);
+      if (!r.ok) return screenError(r.error, true);
       var s = r.student;
-      render('残り回数', [
+      S.page = 'home';
+      render('ホーム', [
         kyukaiNote(s),
         h('div', { class: 'card' }, [
           h('div', { class: 'stat' }, [h('span', {}, ['今月あと']), h('span', {}, [h('b', {}, [String(s.remaining)]), ' 回'])]),
           s.advance > 0 ? h('div', { class: 'muted small' }, ['（来月分から先に使用 ' + s.advance + ' 回）']) : null,
         ]),
+        h('button', { class: 'btn', onclick: goBook }, ['レッスンを予約する']),
+        h('button', { class: 'btn sub', onclick: goList }, ['予約の確認・振替']),
         h('h3', {}, ['これからの予約']),
         r.upcoming.length ? h('div', {}, r.upcoming.map(function (b) {
           return h('div', { class: 'card' }, [h('div', {}, [dispDate(b.date) + ' ' + hm(b.start) + '　' + b.teacherName + '先生']), h('div', { class: 'muted small' }, [b.store + '・' + b.course])]);
         })) : h('p', { class: 'muted' }, ['予約はありません']),
-        h('button', { class: 'btn sub', onclick: goList }, ['予約の確認・振替はこちら']),
         h('p', { class: 'muted small' }, ['振替・キャンセルは' + S.deadlineText + 'まで。期限を過ぎると回数を消化します。']),
       ]);
+    });
+  }
+  function goHome() { S.book = null; screenHome(); }
+  /** ホームの「レッスンを予約する」。前回の先生一覧が端末にあれば先に出し、最新の一覧が届いたら差し替える（p=book で開いたときと同じ速さ） */
+  function goBook() {
+    var id = S.current.id, c = null;
+    try { c = JSON.parse(localStorage.getItem(TEACHERS_KEY) || 'null'); } catch (e) { }
+    if (!(c && c.studentId === id && c.teachers && c.teachers.length && Date.now() - c.at <= 30 * 24 * 3600 * 1000)) return startBooking(null);
+    startBookingState(null);
+    S.book.provisional = true; S.book.teachers = c.teachers;
+    drawTeachers();
+    api('teachers', { studentId: id, originalId: '' }).then(function (r) {
+      if (!r.ok) { S.book = null; return screenError(r.error, r.code === 'status', 'レッスン予約'); }
+      if (!r.teachers.length) { S.book = null; return screenError('ご予約いただける先生の出勤がありません。お問い合わせください。', true, 'レッスン予約'); }
+      settleProvisional(r);
     });
   }
 
   // ---------- お問い合わせ ----------
   function screenContact() {
+    S.page = 'contact';
     render('お問い合わせ', [
       h('div', { class: 'card', html: (S.contactText || 'ご相談・お問い合わせは、このLINEのトークにメッセージをお送りください。').replace(/\n/g, '<br>') }),
       h('button', { class: 'btn', onclick: function () { if (window.liff && liff.closeWindow) liff.closeWindow(); else history.back(); } }, ['トークに戻る']),
-    ], [], { noWho: true });
+      S.current ? h('button', { class: 'btn sub', onclick: goHome }, ['ホームへ']) : null,
+    ], [], { noWho: !S.current });
   }
 
   // ---------- 予約一覧（画面⑥） ----------
   /** ボタンから一覧を開くときはこちら（onclick に screenList を直接渡すと、クリックの情報が pre に入ってしまう） */
   function goList() { screenList(); }
   function screenList(pre) {
+    S.page = 'list';
     if (!pre) busy('予約の確認・振替', '読み込み中…');
     (pre ? Promise.resolve(pre) : api('list', { studentId: S.current.id })).then(function (r) {
       if (!r.ok) return screenError(r.error);
@@ -395,6 +423,7 @@
 
   // ---------- 予約の流れ（画面②〜⑤） ----------
   function startBookingState(original) {
+    S.page = 'book';
     S.book = { mode: original ? '振替' : '通常', original: original, teacherIds: [], month: '', months: [], wishDates: [], wishBands: [], rows: [], unused: [], n: 0, days: {}, cal: {}, pre: null,
       provisional: false, waiting: false, touched: false };
   }
@@ -857,7 +886,7 @@
       S.current = r.student;
       if (r.transfer) {
         render('振替が完了しました', [msg('振替しました。', 'ok'), h('div', { class: 'card' }, [dispDate(r.booking.date) + ' ' + hm(r.booking.start) + '〜' + hm(r.booking.end) + '　' + r.booking.teacherName + '先生・' + r.booking.store]),
-          h('button', { class: 'btn', onclick: goList }, ['予約の確認・振替へ'])]);
+          h('button', { class: 'btn', onclick: goList }, ['予約の確認・振替へ']), h('button', { class: 'btn sub', onclick: goHome }, ['ホームへ'])]);
         return;
       }
       var okRows = r.results.filter(function (x) { return x.ok; }), ng = r.results.filter(function (x) { return !x.ok; });
@@ -869,7 +898,8 @@
         (function () { var m = rows[0].date.substring(0, 7), pst = B.plan && B.plan.student; if (!(pst && typeof bookingLimit === 'function' && m !== todayYmd().substring(0, 7))) return null;
           var lim = bookingLimit(m, { remaining: r.student.remaining, advance: r.student.advance, monthlyCount: r.student.monthlyCount, grantedMonth: pst.grantedMonth });
           return h('div', { class: 'muted small' }, [dispMonth(m) + 'に使える回数：あと ' + lim + ' 回（' + dispMonth(m) + '分は先に使う形で、今月の回数は減りません）']); })(),
-        h('button', { class: 'btn', onclick: goList }, ['予約の確認・振替へ']),
+        h('button', { class: 'btn', onclick: goHome }, ['ホームへ']),
+        h('button', { class: 'btn sub', onclick: goList }, ['予約の確認・振替へ']),
         h('button', { class: 'btn sub', onclick: function () { if (window.liff && liff.closeWindow) liff.closeWindow(); } }, ['閉じる']),
       ]);
     });

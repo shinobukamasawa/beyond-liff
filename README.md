@@ -17,14 +17,14 @@
 - LINE Developers の LIFF アプリの「エンドポイント URL」にこの URL を設定する
 - 納品時：beyond.english.system で GitHub アカウントを作ってリポジトリを移管し、エンドポイント URL を新しい URL に差し替える
 
-## 画面の入口（リッチメニューの4項目）
+## 画面の入口（リッチメニューの1項目。2026-09-24 にん決定）
 
 | 項目 | URL |
 |---|---|
-| レッスンを予約する | `https://liff.line.me/2011635422-YUCoskrr?p=book` |
-| 予約の確認・振替 | `https://liff.line.me/2011635422-YUCoskrr?p=list` |
-| 残り回数 | `https://liff.line.me/2011635422-YUCoskrr?p=count` |
-| お問い合わせ | `https://liff.line.me/2011635422-YUCoskrr?p=contact` |
+| レッスンの予約・確認 | `https://liff.line.me/2011635422-YUCoskrr`（`p` なし＝ホーム） |
+
+- ホーム＝残り回数＋これからの予約＋「レッスンを予約する」「予約の確認・振替」。お問い合わせ・お子さんの切り替え・もう1人登録・ホームへ は右上の「☰ メニュー」
+- 古いリンク用に `?p=book`（先生選択から）・`?p=list`・`?p=count`（＝ホーム）・`?p=contact` も動く
 
 ## 開発中の確認（LINE を通さない）
 
