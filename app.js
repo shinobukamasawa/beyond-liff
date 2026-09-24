@@ -134,16 +134,14 @@
     if (S.current && !(opts && opts.noWho)) {
       // 名前と三本線（お問い合わせ／切り替え・もう1人登録／ホームへ。2026-09-24 にん決定）。
       // 1人だけのときは切り替えを出さず「もう1人登録する」だけ（決定 R）
-      who = h('div', { class: 'who' }, [
-        h('span', {}, [given() + 'さんとして操作中']),
-        h('button', { class: 'menu-btn', onclick: showMenu, 'aria-label': 'メニュー' }, ['☰ メニュー']),
-      ]);
+      who = h('div', { class: 'who' }, [given() + 'さんとして操作中']);
     } else if (S.book && S.book.provisional && !(opts && opts.noWho)) {
       who = h('div', { class: 'who' }, [h('span', {}, ['最新の情報を確認しています…'])]);
     }
+    // 白いヘッダ（2026-09-24 にん決定。全画面共通）：小さく「レッスン予約 ビヨンド」、大きく画面名、その下に操作中の生徒。右に三本線
     app.appendChild(h('div', { class: 'header' }, [
-      h('div', { class: 'title' }, [h('span', {}, [title]), h('span', { class: 'brand' }, [CFG.schoolName])]),
-      who,
+      h('div', { class: 'hl' }, [h('div', { class: 'brand' }, ['レッスン予約 ' + CFG.schoolName]), h('div', { class: 'title' }, [title]), who]),
+      (S.current && !(opts && opts.noWho)) ? h('button', { class: 'menu-btn', onclick: showMenu, 'aria-label': 'メニュー' }, [h('span', { class: 'ic', html: ICON.menu }), 'メニュー']) : null,
     ]));
     app.appendChild(h('div', { class: 'body' }, bodyEls));
     if (footerEls && footerEls.length) app.appendChild(h('div', { class: 'footer' }, footerEls));
@@ -327,7 +325,41 @@
     return msg('休会中です。ご予約は再開後にできます（回数は保持されています）。', 'info');
   }
 
-  // ---------- ホーム（残り回数＋これからの予約＋ボタン2つ。2026-09-24 にん決定。旧「残り回数」の画面をそのまま使う） ----------
+  // ---------- ホーム（残り回数＋これからの予約＋ボタン2つ。2026-09-24 にん決定。見た目はにんのホーム案） ----------
+  var ICON = {
+    menu: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
+    calPlus: '<svg viewBox="0 0 28 28" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="20" height="18" rx="3"/><path d="M3 11h20M9 3v4M17 3v4"/><circle cx="21" cy="21" r="6" fill="#f28c28" stroke="none"/><path d="M21 18v6M18 21h6" stroke="#fff" stroke-width="2.2"/></svg>',
+    cal: '<svg viewBox="0 0 28 28" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="22" height="19" rx="3"/><path d="M3 11h22M9 3v4M19 3v4"/><path d="M8 15h2M13 15h2M18 15h2M8 19h2M13 19h2" stroke-width="2.4"/></svg>',
+    calSmall: '<svg viewBox="0 0 28 28" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="22" height="19" rx="3"/><path d="M3 11h22M9 3v4M19 3v4"/><path d="M8 15h2M13 15h2M18 15h2M8 19h2M13 19h2" stroke-width="2.4"/></svg>',
+    chev: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+  };
+  function dispDateLong(ymd) { var d = ymdToDate(ymd); return (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WD[d.getDay()] + '）'; }
+  function lastDayOf(ym) { var p = ym.split('-'); return new Date(+p[0], +p[1], 0).getDate(); }
+  /**
+   * 残り回数の2か月分（2026-09-24 にん）。
+   * 当月：残り回数（月末まで。使わなかった分は翌月へ）。翌月（解禁後だけ）：翌月分の正規分 − 翌月分から使った分（繰越は足さず注記だけ。当月の残りがまだ動くため）
+   */
+  function countRows(r) {
+    var s = r.student, thisM = r.thisMonth, nextM = r.nextMonth, mc = Number(s.monthlyCount || 0), adv = Number(s.advance || 0);
+    var thisLabel = dispMonth(thisM), nextLabel = dispMonth(nextM), eom = Number(thisM.split('-')[1]) + '/' + lastDayOf(thisM);
+    var rows = [h('div', { class: 'cnt' }, [h('span', { class: 'm' }, [thisLabel]), h('span', { class: 'n' }, ['あと ', h('b', {}, [String(s.remaining)]), ' 回'])]),
+      h('div', { class: 'muted small' }, ['（' + eom + 'まで' + (s.remaining > 0 ? '。使わなかった分は' + nextLabel + 'へ' : '') + '）'])];
+    if (r.nextOpen) {
+      var n = Math.max(0, mc - adv);
+      var note = adv > mc ? '（' + nextLabel + '分' + mc + '回と、' + thisLabel + 'の残りから ' + (adv - mc) + ' 回を予約済み）'
+        : '（' + nextLabel + '分' + mc + '回' + (adv > 0 ? 'のうち' + adv + '回は予約済み' : '') + (s.remaining > 0 ? '。' + thisLabel + 'の残りが繰り越されます' : '') + '）';
+      rows.push(h('div', { class: 'sep' }));
+      rows.push(h('div', { class: 'cnt' }, [h('span', { class: 'm' }, [nextLabel]), h('span', { class: 'n' }, ['あと ', h('b', {}, [String(n)]), ' 回'])]));
+      rows.push(h('div', { class: 'muted small' }, [note]));
+    }
+    return rows;
+  }
+  /** 解禁前の一行：「12月分の予約は 11月20日（金）9:00 から受け付けます」（設定の解禁日・時刻から） */
+  function releaseNote(r) {
+    if (r.nextOpen || !r.releaseDay) return null;
+    var p = r.thisMonth.split('-'), rel = p[0] + '-' + p[1] + '-' + ('0' + r.releaseDay).slice(-2);
+    return msg(dispMonth(r.nextMonth) + '分の予約は ' + dispDateLong(rel) + ' ' + r.releaseTime.replace(/^0/, '') + ' から受け付けます', 'info');
+  }
   function screenHome(pre) {
     S.page = 'home';
     if (!pre) busy('ホーム', '読み込み中…');
@@ -337,20 +369,24 @@
       S.page = 'home';
       render('ホーム', [
         kyukaiNote(s),
-        h('div', { class: 'card' }, [
-          h('div', { class: 'stat' }, [h('span', {}, ['今月あと']), h('span', {}, [h('b', {}, [String(s.remaining)]), ' 回'])]),
-          s.advance > 0 ? h('div', { class: 'muted small' }, ['（来月分から先に使用 ' + s.advance + ' 回）']) : null,
-        ]),
-        h('button', { class: 'btn', onclick: goBook }, ['レッスンを予約する']),
-        h('button', { class: 'btn sub', onclick: goList }, ['予約の確認・振替']),
-        h('h3', {}, ['これからの予約']),
-        r.upcoming.length ? h('div', {}, r.upcoming.map(function (b) {
-          return h('div', { class: 'card' }, [h('div', {}, [dispDate(b.date) + ' ' + hm(b.start) + '　' + b.teacherName + '先生']), h('div', { class: 'muted small' }, [b.store + '・' + b.course])]);
-        })) : h('p', { class: 'muted' }, ['予約はありません']),
-        h('p', { class: 'muted small' }, ['振替・キャンセルは' + S.deadlineText + 'まで。期限を過ぎると回数を消化します。']),
+        h('div', { class: 'card counts' }, countRows(r)),
+        h('button', { class: 'btn big', onclick: goBook }, [h('span', { class: 'ic', html: ICON.calPlus }), h('span', { class: 'lbl' }, ['レッスンを予約する']), h('span', { class: 'ic', html: ICON.chev })]),
+        h('button', { class: 'btn sub big', onclick: goList }, [h('span', { class: 'ic', html: ICON.cal }), h('span', { class: 'lbl' }, ['予約の確認・振替']), h('span', { class: 'ic', html: ICON.chev })]),
+        h('h3', { class: 'sec' }, ['これからの予約']),
+        r.upcoming.length ? h('div', {}, r.upcoming.map(function (b, i) {
+          return h('div', { class: 'card up' }, [
+            i === 0 ? h('span', { class: 'badge' }, ['次回']) : null,
+            h('div', { class: 'when' }, [dispDateLong(b.date) + ' ' + hm(b.start)]),
+            h('div', { class: 'teacher' }, [b.teacherName + '先生']),
+            h('div', { class: 'muted' }, [b.store + '・' + b.course]),
+            h('div', { class: 'dl' }, [h('span', { class: 'ic', html: ICON.calSmall }), h('div', {}, [h('div', { class: 'muted small' }, ['振替・キャンセル期限']), h('div', { class: 'dlv' }, [deadlineLong(b.deadline) + 'まで'])])]),
+          ]);
+        })) : (releaseNote(r) || h('p', { class: 'muted' }, ['予約はありません'])),   // 空で解禁前のときだけ、解禁の一行（にん）
+        h('p', { class: 'muted small' }, ['期限を過ぎると、レッスン1回分を消化します。']),
       ]);
     });
   }
+  function deadlineLong(dt) { var d = new Date(dt.replace(' ', 'T')); return (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WD[d.getDay()] + '）' + hm(d.getHours() * 60 + d.getMinutes()); }
   function goHome() { S.book = null; screenHome(); }
   /** ホームの「レッスンを予約する」。前回の先生一覧が端末にあれば先に出し、最新の一覧が届いたら差し替える（p=book で開いたときと同じ速さ） */
   function goBook() {

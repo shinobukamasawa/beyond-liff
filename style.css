@@ -7,13 +7,14 @@ html, body { margin: 0; padding: 0; background: #f4f6f9; color: var(--ink); font
 #app { min-height: 100vh; display: flex; flex-direction: column; }
 .loading { padding: 40px 16px; text-align: center; color: var(--muted); }
 
-.header { background: var(--blue); color: #fff; padding: 10px 16px; position: sticky; top: 0; z-index: 5; }
-.header .title { font-weight: 700; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
-.header .brand { font-size: 12px; opacity: .85; font-weight: 400; }
-.header .who { margin-top: 4px; font-size: 13px; opacity: .95; display: flex; align-items: center; gap: 8px; min-height: 24px; }  /* 切り替えボタンの有無で高さが変わらないように（先出しの差し替えで画面がずれるのを防ぐ） */
-.header .who .who-tap { cursor: pointer; }
-.header .who .who-mark { opacity: .6; font-size: 11px; }
-.header .who button { background: rgba(255,255,255,.18); color: #fff; border: 1px solid rgba(255,255,255,.4); border-radius: 14px; padding: 2px 10px; font-size: 12px; }
+/* 白いヘッダ（2026-09-24 にん決定。全画面共通） */
+.header { background: #fff; color: var(--ink); padding: 10px 16px 8px; position: sticky; top: 0; z-index: 5; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.header .hl { min-width: 0; }
+.header .brand { font-size: 12px; color: var(--muted); font-weight: 700; white-space: nowrap; }
+.header .title { font-weight: 800; font-size: 22px; line-height: 1.25; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.header .who { font-size: 13px; color: var(--muted); min-height: 20px; }  /* 切り替えの有無で高さが変わらないように（先出しの差し替えで画面がずれるのを防ぐ） */
+.header .menu-btn { flex: none; display: inline-flex; align-items: center; gap: 6px; background: #fff; color: var(--blue); border: 1.5px solid var(--blue); border-radius: 10px; padding: 8px 12px; font-size: 13px; font-weight: 700; }
+.ic { display: inline-flex; align-items: center; }
 
 .body { padding: 14px 16px 90px; flex: 1; }
 .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
@@ -82,11 +83,28 @@ html, body { margin: 0; padding: 0; background: #f4f6f9; color: var(--ink); font
 .list-item .btns .btn { flex: 1; }
 
 /* 2026-09-23 にんのスマホ確認より：折り返しと受付終了の印 */
-.header .brand { white-space: nowrap; margin-left: 8px; flex: none; }
-.header .title > span:first-child { min-width: 0; }
 .prop .grow { min-width: 0; }
 .prop .when { white-space: nowrap; }
 .cal .d.closed { color: #c0c6cd; }
 .cal .d.closed .mk { color: #c0c6cd; }
 .sheet .panel { max-height: 85vh; overscroll-behavior: contain; }
 .sheet .panel h4 { padding-top: 2px; }
+
+/* ホーム（にんのホーム案、2026-09-24） */
+.card.counts { padding: 14px 16px; }
+.cnt { display: flex; justify-content: space-between; align-items: baseline; }
+.cnt .m { font-weight: 700; font-size: 17px; }
+.cnt .n { font-size: 14px; color: var(--ink); }
+.cnt .n b { font-size: 30px; color: var(--blue); margin: 0 2px; }
+.sep { border-top: 1px solid var(--line); margin: 10px 0; }
+.btn.big { display: flex; align-items: center; gap: 12px; padding: 14px 14px; font-size: 18px; }
+.btn.big .lbl { flex: 1; text-align: center; }
+.btn.big .ic { flex: none; }
+.btn.sub.big { font-weight: 700; }
+h3.sec { margin: 18px 0 8px; font-size: 19px; }
+.card.up { position: relative; padding: 12px 14px 12px; }
+.card.up .badge { display: inline-block; background: #f28c28; color: #fff; font-size: 12px; font-weight: 700; border-radius: 6px; padding: 2px 10px; margin-bottom: 4px; }
+.card.up .when { font-size: 21px; font-weight: 800; }
+.card.up .teacher { font-weight: 700; font-size: 16px; }
+.card.up .dl { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; color: var(--blue); }
+.card.up .dlv { font-weight: 700; color: var(--ink); }
