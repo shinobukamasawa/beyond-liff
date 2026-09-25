@@ -537,7 +537,7 @@
     B.plan = {
       builtAt: plan.builtAt, student: plan.student, teachers: plan.teachers, settings: plan.settings,
       slots: plan.slots.map(function (x) { return { date: x[0], teacherId: x[1], store: x[2], start: x[3], end: x[4] }; }),
-      bookings: plan.bookings.map(function (x) { return { id: x[0], studentId: x[1] ? sid : '', teacherId: x[2], date: x[3], start: x[4], end: x[5], state: x[6] }; }),
+      bookings: plan.bookings.map(function (x) { return { id: x[0], studentId: x[1] ? sid : '', teacherId: x[2], date: x[3], start: x[4], end: x[5], state: x[6], store: x[7] || '' }; }),
     };
     B.planAt = Date.now();
   }
@@ -573,7 +573,7 @@
       var dates = [], ym = month.split('-'), last = new Date(Number(ym[0]), Number(ym[1]), 0).getDate();
       for (var d = 1; d <= last; d++) dates.push(month + '-' + ('0' + d).slice(-2));
       var hasSlot = {};
-      input.slots.forEach(function (sl) { if (input.teacherIds.indexOf(sl.teacherId) >= 0 && sl.store === s.store) hasSlot[sl.date] = true; });
+      input.slots.forEach(function (sl) { if (input.teacherIds.indexOf(sl.teacherId) >= 0 && (!sl.store || sl.store === s.store)) hasSlot[sl.date] = true; });   // 店舗が空の枠＝指定なし（どこでも）
       var perDay = {};
       tnCandidates(input, dates).forEach(function (c) { perDay[c.date] = (perDay[c.date] || 0) + 1; });
       var days = {}, today = input.now.ymd, st = input.settings;

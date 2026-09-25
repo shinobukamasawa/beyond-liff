@@ -10,12 +10,13 @@
  *   wishDates: ['yyyy-MM-dd']      画面③でタップした日
  *   wishBands: ['午前'|'午後'|'夕方以降']  空＝制限なし
  *   targetMonth: 'yyyy-MM'
- *   slots: [{ date, teacherId, store, start, end }]          枠（分）
- *   bookings: [{ id, studentId, teacherId, date, start, end, state }]
+ *   slots: [{ date, teacherId, store, start, end }]          枠（分）。store が空＝指定なし（担当店舗のどこでも）。その枠の候補の店舗は生徒の店舗
+ *   bookings: [{ id, studentId, teacherId, date, start, end, state, store }]
  *   original: 振替の元の予約（bookings の要素と同じ形）| null
  *   now: { ymd, minutes }          現在（日本時間）
  *   settings: { releaseDay, releaseMinutes, rangeMonths, stepMinutes, minLeadDays, minLeadMinutes,
- *               absentFreesSlot, spreadWeekly, gapFirst, earlyFirst }
+ *               absentFreesSlot, spreadWeekly, gapFirst, earlyFirst,
+ *               travel: { '店舗A|店舗B': 分 } }   店舗間の移動時間（2026-09-25。ない組は 0）
  */
 
 var TN_WEEK_ = ['日', '月', '火', '水', '木', '金', '土'];
@@ -70,7 +71,7 @@ function tnPrecheck(input) {
 
   // 4) 先生
   var ok = tnEligibleTeachers_(input).some(function (t) {
-    return input.slots.some(function (sl) { return sl.teacherId === t.id && sl.store === s.store && sl.date.substring(0, 7) === input.targetMonth; });
+    return input.slots.some(function (sl) { return sl.teacherId === t.id && tnSlotFits_(sl, s) && sl.date.substring(0, 7) === input.targetMonth; });
   });
   if (!ok) return { code: 'teacher', message: '選んだ先生はこの月に出勤がありません' };
   return null;
@@ -91,6 +92,32 @@ function tnCount(input) {
   return Math.max(1, tnLimit_(input.targetMonth, input.student));
 }
 
+/** 枠が生徒の店舗に合うか（枠の店舗が空＝指定なし＝どこでも） */
+function tnSlotFits_(sl, s) { return !sl.store || sl.store === s.store; }
+
+/** 店舗間の移動時間（分）。同じ店舗・不明な店舗・設定のない組は 0 */
+function tnTravel_(settings, a, b) {
+  if (!a || !b || a === b) return 0;
+  var t = (settings && settings.travel) || {};
+  var v = t[a + '|' + b]; if (v === undefined) v = t[b + '|' + a];
+  return v === undefined ? 0 : Number(v) || 0;
+}
+
+/** 3.6：店舗間の移動時間。同じ先生の同じ日の予約（塞ぐ状態のもの）と店舗が違うとき、間に移動時間以上の空きが要る。足りなければ理由 */
+function tnRejectTravel_(input, c) {
+  var blocking = tnBlockingStates_(input);
+  for (var i = 0; i < input.bookings.length; i++) {
+    var b = input.bookings[i];
+    if (b.teacherId !== c.teacherId || b.date !== c.date || blocking.indexOf(b.state) < 0 || tnIsOriginal_(input, b)) continue;
+    if (!b.store || b.store === c.store) continue;
+    var need = tnTravel_(input.settings, b.store, c.store);
+    if (!need) continue;
+    if (b.end <= c.start && c.start - b.end < need) return '店舗間の移動時間';
+    if (c.end <= b.start && b.start - c.end < need) return '店舗間の移動時間';
+  }
+  return null;
+}
+
 function tnBlockingStates_(input) { return input.settings.absentFreesSlot ? ['予約中'] : ['予約中', '期限後欠席']; }
 function tnIsOriginal_(input, b) { return !!(input.original && b.id === input.original.id); }
 
@@ -108,6 +135,8 @@ function tnRejectBasic_(input, c) {
     return b.teacherId === c.teacherId && b.date === c.date && blocking.indexOf(b.state) >= 0 && !tnIsOriginal_(input, b) && tnOverlap_(c.start, c.end, b.start, b.end);
   });
   if (hitTeacher) return '先生の予約と重なる';
+  var travel = tnRejectTravel_(input, c);
+  if (travel) return travel;
   // 生徒自身：同じ日に予約中があれば弾く（決定 D：1日1回。時間が重ならなくても）
   var hitSelf = input.bookings.some(function (b) {
     return b.studentId === input.student.id && b.date === c.date && b.state === '予約中' && !tnIsOriginal_(input, b);
@@ -135,9 +164,9 @@ function tnCandidates(input, dates, teacherIds) {
   dates.forEach(function (date) {
     teachers.forEach(function (tid) {
       input.slots.forEach(function (sl) {
-        if (sl.date !== date || sl.teacherId !== tid || sl.store !== s.store) return;
+        if (sl.date !== date || sl.teacherId !== tid || !tnSlotFits_(sl, s)) return;
         for (var st = sl.start; st + s.courseMinutes <= sl.end; st += step) {
-          var c = { date: date, teacherId: tid, store: sl.store, start: st, end: st + s.courseMinutes, slotStart: sl.start, slotEnd: sl.end };
+          var c = { date: date, teacherId: tid, store: s.store, start: st, end: st + s.courseMinutes, slotStart: sl.start, slotEnd: sl.end };   // 指定なしの枠でも、予約の店舗は生徒の店舗
           if (tnRejectBasic_(input, c) || tnRejectPrefs_(input, c)) continue;
           out.push(c);
         }
@@ -157,6 +186,8 @@ function tnEvaluate_(input, c, selected) {
   var nextB = schedule.some(function (x) { return x.start === c.end; });
   var conn = ((prevB || c.start === c.slotStart) ? 1 : 0) + ((nextB || c.end === c.slotEnd) ? 1 : 0);
   var connBooking = (prevB ? 1 : 0) + (nextB ? 1 : 0);
+  // 移動が減る方向：その日の先生の予約がみな同じ店舗（または店舗なし）なら 1、別の店舗の予約があれば 0（2026-09-25）
+  var stay = schedule.some(function (x) { return x.store && x.store !== c.store; }) ? 0 : 1;
 
   var prevMonth = tnMonthAdd_(input.targetMonth, -1);
   var wd = tnWeekday_(c.date);
@@ -165,12 +196,12 @@ function tnEvaluate_(input, c, selected) {
     if (b.studentId !== input.student.id || b.state !== '予約中' || b.date.substring(0, 7) !== prevMonth) return;
     if (tnWeekday_(b.date) === wd && b.start === c.start) last = Math.max(last, b.teacherId === c.teacherId ? 2 : 1);
   });
-  return { conn: conn, connBooking: connBooking, last: last };
+  return { conn: conn, connBooking: connBooking, last: last, stay: stay };
 }
 
 /** 4.3：比べる順。a が先なら負 */
 function tnCompare_(a, b, settings, useDistance) {
-  var keys = settings.gapFirst ? ['conn', 'last'] : ['last', 'conn'];
+  var keys = settings.gapFirst ? ['conn', 'last', 'stay'] : ['last', 'conn', 'stay'];
   for (var i = 0; i < keys.length; i++) if (a.ev[keys[i]] !== b.ev[keys[i]]) return b.ev[keys[i]] - a.ev[keys[i]];
   if (useDistance && a.distance !== b.distance) return a.distance - b.distance;
   if (settings.earlyFirst) {
