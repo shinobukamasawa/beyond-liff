@@ -231,7 +231,7 @@
   function saveTeachersCache(studentId, teachers) {
     try {
       localStorage.setItem(TEACHERS_KEY, JSON.stringify({ studentId: studentId, at: Date.now(),
-        teachers: teachers.map(function (t) { return { id: t.id, name: t.name, workdays: t.workdays, message: t.message || '', hasPhoto: !!t.hasPhoto }; }) }));
+        teachers: teachers.map(function (t) { return { id: t.id, name: t.name, workdays: t.workdays, stores: t.stores || [], message: t.message || '', hasPhoto: !!t.hasPhoto }; }) }));
     } catch (e) { }
   }
   function showCachedTeachers(savedStudentId) {
@@ -656,31 +656,40 @@
   function drawTeachers() {
     var B = S.book;
     var all = B.teachers.every(function (t) { return B.teacherIds.indexOf(t.id) >= 0; });
-    var cards = [h('div', { class: 'card' + (all ? ' sel' : ''), onclick: function () {
+    // 2026-09-26 にん：カード全体を押せる・四角のチェック・店舗ごとの出勤・ひとことは区切って1〜2行・下の固定ボタンは「空き日程を見る」＋選択状況
+    var cards = [h('div', { class: 'card tcard' + (all ? ' sel' : ''), onclick: function () {
       B.touched = true; B.teacherIds = all ? [] : B.teachers.map(function (t) { return t.id; }); drawTeachers(); schedulePrefetch();
-    } }, [h('div', { class: 'row' }, [h('div', { class: 'avatar', style: 'background:#5b8bb8' }, ['✦']), h('div', { class: 'grow' }, [h('h3', {}, ['どの先生でもOK']), h('div', { class: 'muted small' }, ['全員を選んだ状態になります'])]), h('div', { class: 'check' }, [all ? '✓' : ''])])])];
+    } }, [h('div', { class: 'row' }, [h('div', { class: 'avatar', style: 'background:#5b8bb8' }, ['✦']), h('div', { class: 'grow' }, [h('h3', {}, ['どの先生でもOK']), h('div', { class: 'muted small' }, ['すべての先生の空き日程を表示'])]), h('div', { class: 'check' }, [all ? '✓' : ''])])])];
     B.teachers.forEach(function (t) {
       var on = B.teacherIds.indexOf(t.id) >= 0;
-      cards.push(h('div', { class: 'card' + (on ? ' sel' : ''), onclick: function () {
+      cards.push(h('div', { class: 'card tcard' + (on ? ' sel' : ''), onclick: function () {
         B.touched = true;
         if (on) B.teacherIds = B.teacherIds.filter(function (x) { return x !== t.id; }); else B.teacherIds.push(t.id);
         drawTeachers(); schedulePrefetch();
       } }, [h('div', { class: 'row' }, [
         h('div', { class: 'avatar', 'data-tid': t.id, style: photoStyle(t.id) }, [t.name.charAt(0)]),
-        h('div', { class: 'grow' }, [h('h3', {}, [t.name + '先生']), h('div', { class: 'muted small' }, [t.workdays + 'に出勤']), t.message ? h('div', { class: 'small', style: 'color:#2b5d8c' }, ['「' + t.message + '」']) : null]),
+        h('div', { class: 'grow' }, [h('h3', {}, [t.name + '先生']), h('div', { class: 'muted small stores' }, storeLines(t))]),
         h('div', { class: 'check' }, [on ? '✓' : '']),
-      ])]));
+      ]), t.message ? h('div', { class: 'quote' }, ['「' + t.message + '」']) : null]));
     });
-    var body = [h('p', {}, ['希望の先生を選んでください']), h('p', { class: 'muted small' }, ['複数選べます。選んだ先生の空きを合わせてご提案します。'])].concat(cards);
+    var body = [h('div', { class: 'row', style: 'gap:8px;margin:2px 0 4px' }, [h('h2', { class: 'h2' }, ['先生を選ぶ']), h('span', { class: 'pill' }, ['複数選択可'])]), h('p', { class: 'muted', style: 'margin:0 0 12px' }, ['選んだ先生の空き日程を表示します。'])].concat(cards);
     if (B.mode === '振替') body.unshift(msg('振替：' + dispDate(B.original.date) + ' ' + hm(B.original.start) + ' ' + B.original.teacherName + '先生 の予約を別の日時に動かします', 'info'));
+    var n = B.teacherIds.length;
     render(B.mode === '振替' ? '振替：先生を選ぶ' : 'レッスン予約', body, [
-      h('button', { class: 'btn', disabled: !B.teacherIds.length, onclick: function () {
+      h('div', { class: 'foot-status' + (n ? '' : ' muted') }, [n ? '先生を' + n + '人選択中' : '先生を選んでください']),
+      h('button', { class: 'btn', disabled: !n, onclick: function () {
         // 先出し中（init がまだ返っていない）なら、返るのを待ってからカレンダーへ進む
         if (B.provisional) { B.waiting = true; busy('空き状況', '読み込み中…'); return; }
         screenCalendar();
-      } }, ['この先生たちで日を選ぶ']),
+      } }, ['空き日程を見る', h('span', { class: 'chev' }, ['›'])]),
       B.mode === '振替' ? h('button', { class: 'btn ghost', onclick: goList }, ['← 一覧に戻る']) : null,
     ]);
+  }
+
+  /** 先生カードの出勤：店舗ごとに「昭島校：月・金」。古い控え（stores なし）は workdays の文字列で */
+  function storeLines(t) {
+    if (t.stores && t.stores.length) return t.stores.map(function (x) { return h('div', {}, [x.store + '：' + x.weekdays.join('・')]); });
+    return [h('div', {}, [(t.workdays || '') + 'に出勤'])];
   }
 
   function screenCalendar() {
