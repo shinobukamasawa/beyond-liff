@@ -1,9 +1,7 @@
-// 公開されても問題のない値だけ置く（秘密情報は GAS のスクリプトプロパティ）
+// 公開されても問題のない値だけ置く（秘密情報は Supabase の秘密情報に置く）
 window.BEYOND_CONFIG = {
   liffId: '2011635422-YUCoskrr',
-  // 旧環境：GAS Web アプリの URL（?api=gas を付けたときだけ使う。引退予定）
-  apiUrl: 'https://script.google.com/macros/s/AKfycbyE3QfRX_Z0WGW76FjUiNDhIEt6_n8DuXrHch_53kMGNzbVwlkwQkyt7HnD1elWaJOE/exec',
-  // 新しい土台（Supabase の Edge Function。開発用プロジェクト）。既定の向き先（2026-09-23 に切り替え）
+  // API（Supabase の Edge Function。開発用プロジェクト）。旧環境（GAS）は 2026-10-01 に引退
   edgeApiUrl: 'https://acmshulzlasrflbjsnhw.supabase.co/functions/v1/api',
   schoolName: 'ビヨンド',
 };

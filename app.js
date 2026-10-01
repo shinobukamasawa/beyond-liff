@@ -1,5 +1,5 @@
 /* ビヨンド 予約 LIFF 画面（docs/screen-line.md、spec 7〜9章）
- * 画面は GitHub Pages、データは GAS の doPost と往復する。秘密情報はこのファイルに置かない。 */
+ * 画面は GitHub Pages、データは Supabase の Edge Function（api）と往復する。秘密情報はこのファイルに置かない。 */
 (function () {
   'use strict';
   var CFG = window.BEYOND_CONFIG;
@@ -8,9 +8,8 @@
   var PAGE = qs.get('p') || 'home';   // 入口は1つ（ホーム。2026-09-24 にん決定）。p=book/list/count/contact は古いリンク用に残す
   var DEV = { key: qs.get('dev') || '', sub: qs.get('sub') || '' };
   var DEBUG = qs.get('debug') === '1';
-  // 通信の向き先。既定は新しい土台（Supabase の Edge Function。2026-09-23 に切り替え）。?api=gas を付けたときだけ旧環境（GAS）へ。
-  // 新しい土台の通し確認が済んだら、既定を入れ替える（docs/supabase-ikou.md）
-  var API_URL = (qs.get('api') === 'gas' || !CFG.edgeApiUrl) ? CFG.apiUrl : CFG.edgeApiUrl;
+  // 通信の向き先：Supabase の Edge Function（2026-09-23 に切り替え。旧環境の GAS は 2026-10-01 に引退し、?api=gas はなくした）
+  var API_URL = CFG.edgeApiUrl;
   var API_LOG = [];
   var T0 = Date.now();
   function logApi(entry) {
