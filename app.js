@@ -356,7 +356,7 @@
     }
     return rows;
   }
-  /** 解禁前の一行：「12月分の予約は 11月20日（金）9:00 から受け付けます」（設定の解禁日・時刻から） */
+  /** 解禁前の一行：「12月分の予約は 11月15日（日）9:00 から受け付けます」（設定の解禁日・時刻から） */
   function releaseNote(r) {
     if (r.nextOpen || !r.releaseDay) return null;
     var p = r.thisMonth.split('-'), rel = p[0] + '-' + p[1] + '-' + ('0' + r.releaseDay).slice(-2);
