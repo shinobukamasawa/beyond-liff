@@ -437,7 +437,7 @@
             i === 0 ? h('span', { class: 'badge' }, ['次回']) : null,
             h('div', { class: 'when' }, [dispDateLong(b.date) + ' ' + hm(b.start)]),
             h('div', { class: 'teacher' }, [b.teacherName + '先生']),
-            h('div', { class: 'muted' }, [b.store + '・' + b.course]),
+            h('div', { class: 'muted' }, [(b.online ? 'オンライン' : b.store) + '・' + b.course]),
             h('div', { class: 'dl' }, [h('span', { class: 'ic', html: ICON.calSmall }), h('div', {}, [h('div', { class: 'muted small' }, ['振替・キャンセル期限']), h('div', { class: 'dlv' }, [deadlineLong(b.deadline) + 'まで'])])]),
           ]);
         })) : (releaseNote(r) || h('p', { class: 'muted' }, ['予約はありません'])),   // 空で解禁前のときだけ、解禁の一行（にん）
@@ -557,7 +557,7 @@
         var dl = b.deadline.substring(5, 16).replace('-', '/').replace(' ', ' ');
         return h('div', { class: 'card list-item' }, [
           h('div', { style: 'font-weight:700' }, [dispDate(b.date) + ' ' + hm(b.start) + '　' + b.course.replace(/マンツーマン/, 'マンツーマン')]),
-          h('div', { class: 'muted' }, [b.teacherName + '先生・' + b.store]),
+          h('div', { class: 'muted' }, [b.teacherName + '先生・' + (b.online ? 'オンライン' : b.store)]),
           b.editable ? h('div', { class: 'btns' }, [
             h('button', { class: 'btn sub', onclick: function () { startBooking(b); } }, ['振替する']),
             h('button', { class: 'btn sub', onclick: function () { confirmCancel(b); } }, ['キャンセル']),

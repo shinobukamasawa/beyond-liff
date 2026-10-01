@@ -103,13 +103,17 @@ function tnTravel_(settings, a, b) {
   return v === undefined ? 0 : Number(v) || 0;
 }
 
-/** 3.6：店舗間の移動時間。同じ先生の同じ日の予約（塞ぐ状態のもの）と店舗が違うとき、間に移動時間以上の空きが要る。足りなければ理由 */
+/**
+ * 3.6：店舗間の移動時間。同じ先生の同じ日の予約（塞ぐ状態のもの）と店舗が違うとき、間に移動時間以上の空きが要る。足りなければ理由。
+ * オンラインの予約（b.online、または振替元がオンライン）は店舗を移動しないので見ない（2026-10-01）
+ */
 function tnRejectTravel_(input, c) {
+  if (c.online || (input.original && input.original.online)) return null;
   var blocking = tnBlockingStates_(input);
   for (var i = 0; i < input.bookings.length; i++) {
     var b = input.bookings[i];
     if (b.teacherId !== c.teacherId || b.date !== c.date || blocking.indexOf(b.state) < 0 || tnIsOriginal_(input, b)) continue;
-    if (!b.store || b.store === c.store) continue;
+    if (!b.store || b.store === c.store || b.online) continue;
     var need = tnTravel_(input.settings, b.store, c.store);
     if (!need) continue;
     if (b.end <= c.start && c.start - b.end < need) return '店舗間の移動時間';
