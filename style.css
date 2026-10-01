@@ -41,6 +41,9 @@ html, body { margin: 0; padding: 0; background: #f4f6f9; color: var(--ink); font
 .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
 .field input, .field textarea { width: 100%; padding: 11px 12px; border: 1px solid #c9d1d9; border-radius: 8px; font-size: 16px; }
 .field textarea { height: 80px; }
+.field select { width: 100%; padding: 11px 12px; border: 1px solid #c9d1d9; border-radius: 8px; font-size: 16px; background: #fff; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.row2 .field input { min-width: 0; }
 
 .msg { padding: 10px 12px; border-radius: 8px; margin: 10px 0; white-space: pre-wrap; }
 .msg.err { background: var(--err-bg); color: var(--err); }

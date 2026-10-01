@@ -216,6 +216,7 @@
     }).then(function (r) {
       if (!r.ok) { S.book = null; screenError(r.error); return; }
       S.linked = r.linked; S.current = r.current; S.contactText = r.contactText; S.deadlineText = r.deadlineText;
+      S.stores = r.stores || []; S.registration = r.registration || { pending: [], rejected: false };
       if (S.current) { try { localStorage.setItem('beyond.student', S.current.id); } catch (e) { } }
       if (S.book && S.book.provisional) return settleProvisional(r.book);
       route({ book: r.book, list: r.list, count: r.count });
@@ -260,7 +261,10 @@
   function route(pre) {
     pre = pre || {};
     if (PAGE === 'contact') return screenContact();
-    if (!S.current) return screenRegister(false);
+    if (!S.current) {
+      if (S.registration && S.registration.pending.length) return screenPending(false);
+      return screenRegister(false, S.registration && S.registration.rejected ? '前回のご登録はスクールで確認できませんでした。お手数ですが、お問い合わせください。' : '');
+    }
     if (S.current.status === '退会') return screenError('ご利用できる生徒さんがいません。お問い合わせください。');
     if (PAGE === 'list') return screenList(pre.list);
     if (PAGE === 'book') return startBooking(null, pre.book);
@@ -275,31 +279,70 @@
     render(title || 'ビヨンド', [msg(text, 'err'), h('button', { class: 'btn sub', onclick: screenContact }, ['お問い合わせ'])], [], { noWho: !keepWho });
   }
 
-  // ---------- 初回登録（画面⓪） ----------
-  function screenRegister(additional) {
-    var kana = h('input', { type: 'text', placeholder: 'ヤマダ タロウ', autocomplete: 'off' });
-    var phone = h('input', { type: 'text', inputmode: 'numeric', placeholder: '09012345678', autocomplete: 'off' });
+  // ---------- 初回登録（画面⓪。2026-10-01：フリガナで照合し、決まらなければスクールの確認待ち。docs/touroku-kae.md） ----------
+  function screenRegister(additional, note0) {
+    var inp = function (ph, extra) { return h('input', Object.assign({ type: 'text', placeholder: ph, autocomplete: 'off' }, extra || {})); };
+    var family = inp('Yamada / ヤマダ'), givenEl = inp('Taro / タロウ'), sei = inp('ヤマダ'), mei = inp('タロウ');
+    var phone = inp('09012345678', { inputmode: 'numeric' });
+    var store = h('select', {}, [h('option', { value: '' }, ['選んでください'])].concat((S.stores || []).map(function (s) { return h('option', { value: s }, [s]); })));
+    var attend = '', days = [];
+    var dayBox = h('div', { class: 'chips', style: 'display:none' });
+    ['月', '火', '水', '木', '金', '土', '日'].forEach(function (w) {
+      var c = h('button', { type: 'button', class: 'chip', onclick: function () {
+        var i = days.indexOf(w); if (i < 0) days.push(w); else days.splice(i, 1);
+        c.className = 'chip' + (days.indexOf(w) >= 0 ? ' on' : '');
+      } }, [w]);
+      dayBox.appendChild(c);
+    });
+    var attendBox = h('div', { class: 'chips' });
+    [['固定', '毎週決まった曜日に通っている'], ['その都度', 'その都度予約している']].forEach(function (a) {
+      var c = h('button', { type: 'button', class: 'chip', onclick: function () {
+        attend = a[0];
+        Array.prototype.forEach.call(attendBox.children, function (x) { x.className = 'chip' + (x === c ? ' on' : ''); });
+        dayBox.style.display = attend === '固定' ? '' : 'none';
+      } }, [a[1]]);
+      attendBox.appendChild(c);
+    });
     var note = h('div');
-    var btn = h('button', { class: 'btn', onclick: submit }, ['確認する']);
+    var btn = h('button', { class: 'btn', onclick: submit }, ['登録する']);
     function submit() {
       btn.disabled = true; note.innerHTML = '';
-      api('register', { kana: kana.value, phone: phone.value }).then(function (r) {
+      api('register', { family: family.value, given: givenEl.value, kanaSei: sei.value, kanaMei: mei.value, phone: phone.value, store: store.value,
+        attend: attend, weekdays: attend === '固定' ? days : [] }).then(function (r) {
         btn.disabled = false;
         if (!r.ok) { note.appendChild(msg(r.error, 'err')); return; }
+        if (r.pending) { S.registration = { pending: [sei.value + '　' + mei.value], rejected: false }; screenPending(additional); return; }
         S.linked = r.linked; S.current = r.student;
         try { localStorage.setItem('beyond.student', r.student.id); } catch (e) { }
         screenRegisterDone();
       });
     }
+    var field = function (label, el, hint) { return h('div', { class: 'field' }, [h('label', {}, [label]), el, hint ? h('div', { class: 'muted small' }, [hint]) : null]); };
     render(additional ? 'もう1人登録する' : 'はじめてのご利用', [
-      h('p', {}, ['生徒さんの情報を確認します' + (additional ? '' : '（初回のみ）') + '。']),
-      h('div', { class: 'field' }, [h('label', {}, ['お名前（フリガナ）']), kana]),
-      h('div', { class: 'field' }, [h('label', {}, ['教室にお届けの電話番号']), phone]),
+      h('p', {}, ['生徒さんの情報を入力してください' + (additional ? '' : '（初回のみ）') + '。']),
+      note0 ? msg(note0, 'warn') : null,
+      h('div', { class: 'row2' }, [field('お名前（姓）', family), field('お名前（名）', givenEl)]),
+      h('div', { class: 'muted small', style: 'margin:-8px 0 12px' }, ['ローマ字でもカナでも大丈夫です']),
+      h('div', { class: 'row2' }, [field('フリガナ（セイ）', sei), field('フリガナ（メイ）', mei)]),
+      field('電話番号', phone, '連絡先としてスクールの名簿に保存します'),
+      field('通っている教室', store),
+      h('div', { class: 'field' }, [h('label', {}, ['通い方']), attendBox, dayBox]),
       btn, note,
-      h('p', { class: 'muted small' }, ['※名簿にご登録のフリガナと電話番号を入力してください。ご不明な点はお問い合わせへ。']),
+      h('p', { class: 'muted small' }, ['※スクールの名簿と照らし合わせます。確認が必要なときは、スクールで確認してからご利用いただけます。']),
       additional ? h('button', { class: 'btn sub', onclick: function () { S.book = null; route(); } }, ['← 登録せずに戻る']) : null,
       h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
     ], [], { noWho: !additional });
+  }
+
+  /** スクールの確認待ち（承認待ち）。承認されれば、次に開いたときから使える */
+  function screenPending(additional) {
+    render('スクールで確認中です', [
+      msg('ご登録ありがとうございます。スクールで確認中です。確認ができしだい、このメニューからご利用いただけます。', 'info'),
+      h('p', { class: 'muted small' }, ['お急ぎの場合や、入力を間違えた場合は、入力し直すかお問い合わせください。']),
+      h('button', { class: 'btn sub', onclick: function () { screenRegister(additional); } }, ['入力し直す']),
+      additional || S.current ? h('button', { class: 'btn sub', onclick: function () { S.book = null; route(); } }, ['戻る']) : null,
+      h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
+    ], [], { noWho: !S.current });
   }
 
   function screenRegisterDone() {
@@ -371,6 +414,7 @@
       S.page = 'home';
       render('ホーム', [
         kyukaiNote(s),
+        pendingNote(),
         h('div', { class: 'card counts' }, countRows(r)),
         h('button', { class: 'btn big', onclick: goBook }, [h('span', { class: 'ic', html: ICON.calPlus }), h('span', { class: 'lbl' }, ['レッスンを予約する']), h('span', { class: 'ic', html: ICON.chev })]),
         h('button', { class: 'btn sub big', onclick: goList }, [h('span', { class: 'ic', html: ICON.cal }), h('span', { class: 'lbl' }, ['予約の確認・振替']), h('span', { class: 'ic', html: ICON.chev })]),
@@ -387,6 +431,11 @@
         h('p', { class: 'muted small' }, ['期限を過ぎると、レッスン1回分を消化します。']),
       ]);
     });
+  }
+  /** 兄弟の2人目がスクールの確認待ちのとき、ホームの上に1行（2026-10-01） */
+  function pendingNote() {
+    var p = S.registration && S.registration.pending || [];
+    return p.length ? msg(p.join('・') + ' さんのご登録は、スクールで確認中です。', 'info') : null;
   }
   function deadlineLong(dt) { var d = new Date(dt.replace(' ', 'T')); return (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WD[d.getDay()] + '）' + hm(d.getHours() * 60 + d.getMinutes()); }
   function goHome() { S.book = null; screenHome(); }
