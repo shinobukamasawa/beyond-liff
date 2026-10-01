@@ -216,7 +216,7 @@
     }).then(function (r) {
       if (!r.ok) { S.book = null; screenError(r.error); return; }
       S.linked = r.linked; S.current = r.current; S.contactText = r.contactText; S.deadlineText = r.deadlineText;
-      S.stores = r.stores || []; S.registration = r.registration || { pending: [], rejected: false };
+      S.registration = r.registration || { pending: [], rejected: false };
       if (S.current) { try { localStorage.setItem('beyond.student', S.current.id); } catch (e) { } }
       if (S.book && S.book.provisional) return settleProvisional(r.book);
       route({ book: r.book, list: r.list, count: r.count });
@@ -280,78 +280,85 @@
   }
 
   // ---------- 初回登録（画面⓪。2026-10-01：フリガナで照合し、決まらなければスクールの確認待ち。docs/touroku-kae.md） ----------
-  function screenRegister(additional, note0) {
+  // 入力は姓・名・フリガナ・電話番号だけ（同日の見直しで、教室・通い方・曜日はやめた）。
+  // replaces：確認中の画面の「入力し直す」から来たときの、前の確認待ちの id（前の入力は取り下げになり、新しい入力につながる）
+  function screenRegister(additional, note0, replaces) {
     var inp = function (ph, extra) { return h('input', Object.assign({ type: 'text', placeholder: ph, autocomplete: 'off' }, extra || {})); };
     var family = inp('Yamada / ヤマダ'), givenEl = inp('Taro / タロウ'), sei = inp('ヤマダ'), mei = inp('タロウ');
     var phone = inp('09012345678', { inputmode: 'numeric' });
-    var store = h('select', {}, [h('option', { value: '' }, ['選んでください'])].concat((S.stores || []).map(function (s) { return h('option', { value: s }, [s]); })));
-    var attend = '', days = [];
-    var dayBox = h('div', { class: 'chips', style: 'display:none' });
-    ['月', '火', '水', '木', '金', '土', '日'].forEach(function (w) {
-      var c = h('button', { type: 'button', class: 'chip', onclick: function () {
-        var i = days.indexOf(w); if (i < 0) days.push(w); else days.splice(i, 1);
-        c.className = 'chip' + (days.indexOf(w) >= 0 ? ' on' : '');
-      } }, [w]);
-      dayBox.appendChild(c);
-    });
-    var attendBox = h('div', { class: 'chips' });
-    [['固定', '毎週決まった曜日に通っている'], ['その都度', 'その都度予約している']].forEach(function (a) {
-      var c = h('button', { type: 'button', class: 'chip', onclick: function () {
-        attend = a[0];
-        Array.prototype.forEach.call(attendBox.children, function (x) { x.className = 'chip' + (x === c ? ' on' : ''); });
-        dayBox.style.display = attend === '固定' ? '' : 'none';
-      } }, [a[1]]);
-      attendBox.appendChild(c);
-    });
+    // 入力し直すときは、前の入力を残しておく（直すところだけ直せるように）
+    var last = replaces && S.lastRegister;
+    if (last) { family.value = last.family; givenEl.value = last.given; sei.value = last.kanaSei; mei.value = last.kanaMei; phone.value = last.phone; }
     var note = h('div');
     var btn = h('button', { class: 'btn', onclick: submit }, ['登録する']);
     function submit() {
       btn.disabled = true; note.innerHTML = '';
-      api('register', { family: family.value, given: givenEl.value, kanaSei: sei.value, kanaMei: mei.value, phone: phone.value, store: store.value,
-        attend: attend, weekdays: attend === '固定' ? days : [] }).then(function (r) {
+      S.lastRegister = { family: family.value, given: givenEl.value, kanaSei: sei.value, kanaMei: mei.value, phone: phone.value };
+      api('register', { family: family.value, given: givenEl.value, kanaSei: sei.value, kanaMei: mei.value, phone: phone.value, replaces: replaces || 0 }).then(function (r) {
         btn.disabled = false;
         if (!r.ok) { note.appendChild(msg(r.error, 'err')); return; }
-        if (r.pending) { S.registration = { pending: [sei.value + '　' + mei.value], rejected: false }; screenPending(additional); return; }
-        S.linked = r.linked; S.current = r.student;
+        if (r.pending) {
+          var kana = sei.value + '　' + mei.value;
+          var rest = ((S.registration && S.registration.pending) || []).filter(function (x) { return x.id !== replaces && x.id !== r.id; });
+          S.registration = { pending: [{ id: r.id, kana: kana }].concat(rest), rejected: false };
+          screenPending(additional, r.id); return;
+        }
+        S.linked = r.linked; S.current = r.student; S.registration = { pending: ((S.registration && S.registration.pending) || []).filter(function (x) { return x.id !== replaces; }), rejected: false };
         try { localStorage.setItem('beyond.student', r.student.id); } catch (e) { }
-        screenRegisterDone();
+        screenRegisterDone(r);
       });
     }
     var field = function (label, el, hint) { return h('div', { class: 'field' }, [h('label', {}, [label]), el, hint ? h('div', { class: 'muted small' }, [hint]) : null]); };
-    render(additional ? 'もう1人登録する' : 'はじめてのご利用', [
-      h('p', {}, ['生徒さんの情報を入力してください' + (additional ? '' : '（初回のみ）') + '。']),
+    render(replaces ? '入力し直す' : additional ? 'もう1人登録する' : 'はじめてのご利用', [
+      h('p', {}, ['生徒さんの情報を入力してください' + (additional || replaces ? '' : '（初回のみ）') + '。']),
       note0 ? msg(note0, 'warn') : null,
       h('div', { class: 'row2' }, [field('お名前（姓）', family), field('お名前（名）', givenEl)]),
       h('div', { class: 'muted small', style: 'margin:-8px 0 12px' }, ['ローマ字でもカナでも大丈夫です']),
       h('div', { class: 'row2' }, [field('フリガナ（セイ）', sei), field('フリガナ（メイ）', mei)]),
       field('電話番号', phone, '連絡先としてスクールの名簿に保存します'),
-      field('通っている教室', store),
-      h('div', { class: 'field' }, [h('label', {}, ['通い方']), attendBox, dayBox]),
       btn, note,
       h('p', { class: 'muted small' }, ['※スクールの名簿と照らし合わせます。確認が必要なときは、スクールで確認してからご利用いただけます。']),
-      additional ? h('button', { class: 'btn sub', onclick: function () { S.book = null; route(); } }, ['← 登録せずに戻る']) : null,
+      additional || replaces ? h('button', { class: 'btn sub', onclick: function () { S.book = null; route(); } }, ['← 登録せずに戻る']) : null,
       h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
-    ], [], { noWho: !additional });
+    ], [], { noWho: !S.current });
   }
 
-  /** スクールの確認待ち（承認待ち）。承認されれば、次に開いたときから使える */
-  function screenPending(additional) {
+  /** スクールの確認待ち。承認されれば、次に開いたときから使える。id：いま確認待ちの申し込み（入力し直すと取り下げになる） */
+  function screenPending(additional, id) {
+    if (!id) { var p = (S.registration && S.registration.pending) || []; id = p.length ? p[0].id : 0; }
     render('スクールで確認中です', [
       msg('ご登録ありがとうございます。スクールで確認中です。確認ができしだい、このメニューからご利用いただけます。', 'info'),
-      h('p', { class: 'muted small' }, ['お急ぎの場合や、入力を間違えた場合は、入力し直すかお問い合わせください。']),
-      h('button', { class: 'btn sub', onclick: function () { screenRegister(additional); } }, ['入力し直す']),
+      h('p', { class: 'muted small' }, ['入力を間違えた場合は「入力し直す」から。前の入力は取り消されます。お急ぎの場合はお問い合わせください。']),
+      h('button', { class: 'btn sub', onclick: function () { screenRegister(additional, '', id); } }, ['入力し直す']),
       additional || S.current ? h('button', { class: 'btn sub', onclick: function () { S.book = null; route(); } }, ['戻る']) : null,
       h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
     ], [], { noWho: !S.current });
   }
 
-  function screenRegisterDone() {
-    var s = S.current;
+  /** 固定枠の一行（「毎週 火 15:00 エマ先生」「第1・3 土 15:00 …」） */
+  function fixedText(f) { return (f.weeks && f.weeks.length ? '第' + f.weeks.join('・') + ' ' : '毎週 ') + f.weekday + '曜 ' + hm(f.start) + '　' + f.teacherName + '先生'; }
+  /** 「○○さんとして登録しました」のカード（本人が間違いに気づけるように。2026-10-01 にん）：名前・コース・教室・固定枠 */
+  function whoCard(s, profile, title) {
+    var fx = (profile && profile.fixed) || [];
+    return h('div', { class: 'card' }, [
+      h('h3', {}, [title || ('✓ ' + s.family + ' ' + s.given + ' さんとして登録しました')]),
+      h('div', { class: 'muted' }, [(s.course || 'コース確認中') + '・' + s.store]),
+      fx.length ? h('div', { style: 'margin-top:6px' }, [h('div', { class: 'muted small' }, ['固定のレッスン'])].concat(fx.map(function (f) { return h('div', {}, [fixedText(f)]); }))) : null,
+      h('p', { class: 'muted small', style: 'margin:8px 0 0' }, ['お名前や固定のレッスンが違う場合は、お手数ですがお問い合わせください。']),
+    ]);
+  }
+
+  function screenRegisterDone(r) {
+    var s = S.current, up = (r && r.upcoming) || [];
     render('登録が完了しました', [
-      h('div', { class: 'card' }, [h('h3', {}, ['✓ ' + s.family + ' ' + s.given + ' さん']), h('div', { class: 'muted' }, [s.course + '・' + s.store])]),
+      whoCard(s, r && r.profile),
+      h('h3', { class: 'sec' }, ['これからの予約']),
+      up.length ? h('div', {}, up.slice(0, 3).map(function (b) { return h('div', { class: 'card up' }, [h('div', { class: 'when' }, [dispDateLong(b.date) + ' ' + hm(b.start)]), h('div', { class: 'teacher' }, [b.teacherName + '先生'])]); }))
+        : h('p', { class: 'muted' }, ['予約はまだありません']),
       h('button', { class: 'btn', onclick: function () { S.book = null; route(); } }, ['つづける']),
       h('p', { class: 'muted small' }, ['ご兄弟で同じ LINE をお使いの場合']),
       h('button', { class: 'btn sub', onclick: function () { screenRegister(true); } }, ['もう1人登録する']),
+      h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
     ]);
   }
 
@@ -415,6 +422,7 @@
       render('ホーム', [
         kyukaiNote(s),
         pendingNote(),
+        recentWho(r),
         h('div', { class: 'card counts' }, countRows(r)),
         h('button', { class: 'btn big', onclick: goBook }, [h('span', { class: 'ic', html: ICON.calPlus }), h('span', { class: 'lbl' }, ['レッスンを予約する']), h('span', { class: 'ic', html: ICON.chev })]),
         h('button', { class: 'btn sub big', onclick: goList }, [h('span', { class: 'ic', html: ICON.cal }), h('span', { class: 'lbl' }, ['予約の確認・振替']), h('span', { class: 'ic', html: ICON.chev })]),
@@ -435,7 +443,14 @@
   /** 兄弟の2人目がスクールの確認待ちのとき、ホームの上に1行（2026-10-01） */
   function pendingNote() {
     var p = S.registration && S.registration.pending || [];
-    return p.length ? msg(p.join('・') + ' さんのご登録は、スクールで確認中です。', 'info') : null;
+    return p.length ? msg(p.map(function (x) { return x.kana; }).join('・') + ' さんのご登録は、スクールで確認中です。', 'info') : null;
+  }
+  /** 登録から30日は、ホームの上に「○○さんとして登録しました」と固定のレッスンを出す（本人が間違いに気づけるように。2026-10-01 にん） */
+  function recentWho(r) {
+    var d = r.profile && r.profile.linkedOn;
+    if (!d || (Date.now() - ymdToDate(d).getTime()) > 30 * 24 * 3600 * 1000) return null;
+    var dd = ymdToDate(d);
+    return whoCard(r.student, r.profile, r.student.family + ' ' + r.student.given + ' さんとして登録しました（' + (dd.getMonth() + 1) + '/' + dd.getDate() + '）');
   }
   function deadlineLong(dt) { var d = new Date(dt.replace(' ', 'T')); return (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WD[d.getDay()] + '）' + hm(d.getHours() * 60 + d.getMinutes()); }
   function goHome() { S.book = null; screenHome(); }
