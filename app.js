@@ -181,7 +181,10 @@
     var opts = S.linked.map(function (s) {
       return { label: s.family + ' ' + s.given + ' さん（' + s.course + '・' + s.store + '）' + (s.id === S.current.id ? ' ✓' : ''), onclick: function () {
         S.current = s; try { localStorage.setItem('beyond.student', s.id); } catch (e) { }
-        S.book = null; route();
+        S.book = null;
+        if (S.page === 'mypage') return screenMypage();     // マイページ・履歴は、切り替えた生徒の分を開き直す
+        if (S.page === 'history') return screenHistory();
+        route();
       } };
     });
     opts.push({ label: '＋ もう1人登録する', onclick: function () { screenRegister(true); } });
@@ -191,6 +194,8 @@
   function showMenu() {
     var opts = [];
     if (S.page !== 'home') opts.push({ label: '⌂ ホームへ', onclick: goHome });
+    opts.push({ label: 'これまでのレッスン', onclick: screenHistory });
+    opts.push({ label: 'マイページ', onclick: screenMypage });
     opts.push({ label: 'お問い合わせ', onclick: screenContact });
     if (S.linked.length > 1) opts.push({ label: 'お子さんを切り替える（いま：' + given() + 'さん）', onclick: showSwitcher });
     else opts.push({ label: '＋ もう1人登録する（ご兄弟で同じ LINE をお使いの場合）', onclick: function () { screenRegister(true); } });
@@ -477,6 +482,66 @@
       h('button', { class: 'btn', onclick: function () { if (window.liff && liff.closeWindow) liff.closeWindow(); else history.back(); } }, ['トークに戻る']),
       S.current ? h('button', { class: 'btn sub', onclick: goHome }, ['ホームへ']) : null,
     ], [], { noWho: !S.current });
+  }
+
+  // ---------- マイページ（2026-10-01 にん。フェーズ1：表示と電話番号の変更だけ） ----------
+  function screenMypage() {
+    S.page = 'mypage';
+    busy('マイページ', '読み込み中…');
+    api('mypage', { studentId: S.current.id }).then(function (r) {
+      if (!r.ok) return screenError(r.error, true);
+      var row = function (label, value) { return h('div', { class: 'kv' }, [h('div', { class: 'muted small' }, [label]), h('div', {}, [value || '—'])]); };
+      var phone = h('input', { type: 'text', inputmode: 'numeric', value: r.phone || '', autocomplete: 'off' });
+      var note = h('div');
+      var btn = h('button', { class: 'btn sub', onclick: function () {
+        btn.disabled = true; note.innerHTML = '';
+        api('savePhone', { studentId: S.current.id, phone: phone.value }).then(function (x) {
+          btn.disabled = false;
+          if (!x.ok) { note.appendChild(msg(x.error, 'err')); return; }
+          phone.value = x.phone; note.appendChild(msg('電話番号を変更しました。', 'ok'));
+        });
+      } }, ['電話番号を変更する']);
+      render('マイページ', [
+        h('div', { class: 'card' }, [
+          row('お名前', r.family + ' ' + r.given),
+          row('フリガナ', r.kana),
+          row('教室', r.store),
+          row('コース', r.course || '確認中'),
+          r.fixed.length ? h('div', { class: 'kv' }, [h('div', { class: 'muted small' }, ['固定のレッスン'])].concat(r.fixed.map(function (f) { return h('div', {}, [fixedText(f)]); }))) : null,
+        ]),
+        h('p', { class: 'muted small' }, ['お名前の変更は、お問い合わせからご連絡ください。']),
+        h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
+        h('div', { class: 'card' }, [h('div', { class: 'field' }, [h('label', {}, ['電話番号（ハイフンなしで大丈夫です）']), phone]), btn, note]),
+        h('button', { class: 'btn sub', onclick: goHome }, ['ホームへ']),
+      ]);
+    });
+  }
+
+  // ---------- これまでのレッスン（2026-10-01 にん。直近3か月。読むだけ） ----------
+  function screenHistory() {
+    S.page = 'history';
+    busy('これまでのレッスン', '読み込み中…');
+    api('history', { studentId: S.current.id }).then(function (r) {
+      if (!r.ok) return screenError(r.error, true);
+      var list = r.items.map(function (x) {
+        if (x.type === 'count') {
+          return h('div', { class: 'card hist count' }, [
+            h('div', { class: 'when' }, [dispDateLong(x.date) + '　' + x.kind + ' ' + (x.delta > 0 ? '+' : '') + x.delta + (x.col === '先使い' ? '（先使い）' : '')]),
+            x.note ? h('div', { class: 'muted small' }, ['理由：' + x.note]) : null,
+          ]);
+        }
+        var kind = x.kind === '振替' && x.toDate ? '振替（→' + (ymdToDate(x.toDate).getMonth() + 1) + '/' + ymdToDate(x.toDate).getDate() + ' ' + hm(x.toStart) + '）' : x.kind;
+        return h('div', { class: 'card hist' }, [
+          h('div', { class: 'row-between' }, [h('div', { class: 'when' }, [dispDateLong(x.date) + ' ' + hm(x.start)]), h('span', { class: 'kind k-' + x.kind }, [kind])]),
+          h('div', { class: 'muted small' }, [x.teacherName + '先生・' + x.store]),
+        ]);
+      });
+      render('これまでのレッスン', [
+        h('p', { class: 'muted small' }, [dispMonth(r.from.substring(0, 7)) + 'からの記録です（新しい順）。これからの予約は「予約の確認・振替」から。']),
+        list.length ? h('div', {}, list) : h('p', { class: 'muted' }, ['まだ記録はありません']),
+        h('button', { class: 'btn sub', onclick: goHome }, ['ホームへ']),
+      ]);
+    });
   }
 
   // ---------- 予約一覧（画面⑥） ----------

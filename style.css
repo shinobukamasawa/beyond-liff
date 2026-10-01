@@ -121,3 +121,14 @@ h3.sec { margin: 18px 0 8px; font-size: 19px; }
 .foot-status { text-align: center; font-size: 13px; font-weight: 700; margin-bottom: 8px; }
 .foot-status.muted { font-weight: 500; }
 .btn .chev { float: right; font-size: 20px; line-height: 1; }
+
+/* マイページ・これまでのレッスン（2026-10-01） */
+.kv { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.kv:last-child { border-bottom: none; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.card.hist { padding: 10px 12px; margin-bottom: 8px; }
+.card.hist.count { background: var(--blue-light); }
+.kind { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #eef1f4; white-space: nowrap; }
+.kind.k-実施 { background: var(--ok-bg); color: var(--ok); }
+.kind.k-期限後欠席 { background: var(--err-bg); color: var(--err); }
+.kind.k-休講 { background: var(--warn-bg); color: var(--warn); }
