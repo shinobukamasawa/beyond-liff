@@ -284,21 +284,20 @@
   }
 
   // ---------- 初回登録（画面⓪。2026-10-01：フリガナで照合し、決まらなければスクールの確認待ち。docs/touroku-kae.md） ----------
-  // 入力は姓・名・フリガナ・電話番号だけ（同日の見直しで、教室・通い方・曜日はやめた）。
+  // 入力は姓・名・フリガナだけ（同日の見直しで、教室・通い方・曜日はやめた。2026-10-09 に電話番号もやめた：システムで持たない）。
   // replaces：確認中の画面の「入力し直す」から来たときの、前の確認待ちの id（前の入力は取り下げになり、新しい入力につながる）
   function screenRegister(additional, note0, replaces) {
     var inp = function (ph, extra) { return h('input', Object.assign({ type: 'text', placeholder: ph, autocomplete: 'off' }, extra || {})); };
     var family = inp('Yamada / ヤマダ'), givenEl = inp('Taro / タロウ'), sei = inp('ヤマダ'), mei = inp('タロウ');
-    var phone = inp('09012345678', { inputmode: 'numeric' });
     // 入力し直すときは、前の入力を残しておく（直すところだけ直せるように）
     var last = replaces && S.lastRegister;
-    if (last) { family.value = last.family; givenEl.value = last.given; sei.value = last.kanaSei; mei.value = last.kanaMei; phone.value = last.phone; }
+    if (last) { family.value = last.family; givenEl.value = last.given; sei.value = last.kanaSei; mei.value = last.kanaMei; }
     var note = h('div');
     var btn = h('button', { class: 'btn', onclick: submit }, ['登録する']);
     function submit() {
       btn.disabled = true; note.innerHTML = '';
-      S.lastRegister = { family: family.value, given: givenEl.value, kanaSei: sei.value, kanaMei: mei.value, phone: phone.value };
-      api('register', { family: family.value, given: givenEl.value, kanaSei: sei.value, kanaMei: mei.value, phone: phone.value, replaces: replaces || 0 }).then(function (r) {
+      S.lastRegister = { family: family.value, given: givenEl.value, kanaSei: sei.value, kanaMei: mei.value };
+      api('register', { family: family.value, given: givenEl.value, kanaSei: sei.value, kanaMei: mei.value, replaces: replaces || 0 }).then(function (r) {
         btn.disabled = false;
         if (!r.ok) { note.appendChild(msg(r.error, 'err')); return; }
         if (r.pending) {
@@ -319,7 +318,6 @@
       h('div', { class: 'row2' }, [field('お名前（姓）', family), field('お名前（名）', givenEl)]),
       h('div', { class: 'muted small', style: 'margin:-8px 0 12px' }, ['ローマ字でもカナでも大丈夫です']),
       h('div', { class: 'row2' }, [field('フリガナ（セイ）', sei), field('フリガナ（メイ）', mei)]),
-      field('電話番号', phone, '連絡先としてスクールの名簿に保存します'),
       btn, note,
       h('p', { class: 'muted small' }, ['※スクールの名簿と照らし合わせます。確認が必要なときは、スクールで確認してからご利用いただけます。']),
       additional || replaces ? h('button', { class: 'btn sub', onclick: function () { S.book = null; route(); } }, ['← 登録せずに戻る']) : null,
@@ -483,23 +481,13 @@
     ], [], { noWho: !S.current });
   }
 
-  // ---------- マイページ（2026-10-01 にん。フェーズ1：表示と電話番号の変更だけ） ----------
+  // ---------- マイページ（2026-10-01 にん。フェーズ1：表示だけ。電話番号の変更は 2026-10-09 にやめた） ----------
   function screenMypage() {
     S.page = 'mypage';
     busy('マイページ', '読み込み中…');
     api('mypage', { studentId: S.current.id }).then(function (r) {
       if (!r.ok) return screenError(r.error, true);
       var row = function (label, value) { return h('div', { class: 'kv' }, [h('div', { class: 'muted small' }, [label]), h('div', {}, [value || '—'])]); };
-      var phone = h('input', { type: 'text', inputmode: 'numeric', value: r.phone || '', autocomplete: 'off' });
-      var note = h('div');
-      var btn = h('button', { class: 'btn sub', onclick: function () {
-        btn.disabled = true; note.innerHTML = '';
-        api('savePhone', { studentId: S.current.id, phone: phone.value }).then(function (x) {
-          btn.disabled = false;
-          if (!x.ok) { note.appendChild(msg(x.error, 'err')); return; }
-          phone.value = x.phone; note.appendChild(msg('電話番号を変更しました。', 'ok'));
-        });
-      } }, ['電話番号を変更する']);
       render('マイページ', [
         h('div', { class: 'card' }, [
           row('お名前', r.family + ' ' + r.given),
@@ -510,7 +498,6 @@
         ]),
         h('p', { class: 'muted small' }, ['お名前の変更は、お問い合わせからご連絡ください。']),
         h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
-        h('div', { class: 'card' }, [h('div', { class: 'field' }, [h('label', {}, ['電話番号（ハイフンなしで大丈夫です）']), phone]), btn, note]),
         h('button', { class: 'btn sub', onclick: goHome }, ['ホームへ']),
       ]);
     });
