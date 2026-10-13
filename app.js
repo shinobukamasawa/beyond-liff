@@ -326,12 +326,17 @@
   }
 
   /** スクールの確認待ち。承認されれば、次に開いたときから使える。id：いま確認待ちの申し込み（入力し直すと取り下げになる） */
+  // 2026-10-13 にん（Q-H の A）：理由（名簿にない・同じフリガナが2人など）は出さない。名簿にだれがいるかを画面から分からせないため。
+  // 代わりに入れたフリガナを大きく見せて、入れ間違いに本人が気づけるようにする
   function screenPending(additional, id) {
-    if (!id) { var p = (S.registration && S.registration.pending) || []; id = p.length ? p[0].id : 0; }
-    render('スクールで確認中です', [
-      msg('ご登録ありがとうございます。スクールで確認中です。確認ができしだい、このメニューからご利用いただけます。', 'info'),
-      h('p', { class: 'muted small' }, ['入力を間違えた場合は「入力し直す」から。前の入力は取り消されます。お急ぎの場合はお問い合わせください。']),
-      h('button', { class: 'btn sub', onclick: function () { screenRegister(additional, '', id); } }, ['入力し直す']),
+    var p = (S.registration && S.registration.pending) || [];
+    if (!id) id = p.length ? p[0].id : 0;
+    var mine = p.filter(function (x) { return x.id === id; })[0];
+    render('ご入力内容をご確認ください', [
+      mine ? h('div', { class: 'card' }, [h('div', { class: 'muted small' }, ['入力されたフリガナ']), h('div', { style: 'font-size:22px;font-weight:700;margin-top:4px' }, [mine.kana])]) : null,
+      msg('まだご利用いただけません。フリガナが違っていれば「入力し直す」から直してください。合っていれば、スクールで確認します。確認ができしだい、このメニューからご利用いただけます。', 'info'),
+      h('p', { class: 'muted small' }, ['入力し直すと、前の入力は取り消されます。お急ぎの場合はお問い合わせください。']),
+      h('button', { class: 'btn', onclick: function () { screenRegister(additional, '', id); } }, ['入力し直す']),
       additional || S.current ? h('button', { class: 'btn sub', onclick: function () { S.book = null; route(); } }, ['戻る']) : null,
       h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
     ], [], { noWho: !S.current });
