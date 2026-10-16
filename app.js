@@ -5,7 +5,7 @@
   var CFG = window.BEYOND_CONFIG;
   var app = document.getElementById('app');
   var qs = new URLSearchParams(location.search);
-  var PAGE = qs.get('p') || 'home';   // 入口は1つ（ホーム。2026-09-24 にん決定）。p=book/list/count/contact は古いリンク用に残す
+  var PAGE = qs.get('p') || 'home';   // 入口は1つ（ホーム。2026-09-24 にん決定）。p=book/list/count は古いリンク用に残す（p=contact は 2026-10-16 に画面ごとやめた。ホームに行く）
   var DEV = { key: qs.get('dev') || '', sub: qs.get('sub') || '' };
   var DEBUG = qs.get('debug') === '1';
   // 通信の向き先：Supabase の Edge Function（2026-09-23 に切り替え。旧環境の GAS は 2026-10-01 に引退し、?api=gas はなくした）
@@ -36,7 +36,7 @@
       return '+' + ((e.at - T0) / 1000).toFixed(1) + 's ' + e.action + (e.bg ? '(先読み)' : '') + retry + has404 + ' 往復' + e.ms + gas + marks + (e.error ? ' !' + e.error : '');
     }).join('\n');
   }
-  var S = { idToken: '', linked: [], current: null, contactText: '', deadlineText: '', book: null, page: '' };   // page：いま出している画面（三本線の「ホームへ」の出し分け）
+  var S = { idToken: '', linked: [], current: null, deadlineText: '', book: null, page: '' };   // page：いま出している画面（三本線の「ホームへ」の出し分け）
   var WD = ['日', '月', '火', '水', '木', '金', '土'];
 
   // ---------- 便利関数 ----------
@@ -131,7 +131,7 @@
     app.innerHTML = '';
     var who = null;
     if (S.current && !(opts && opts.noWho)) {
-      // 名前と三本線（お問い合わせ／切り替え・もう1人登録／ホームへ。2026-09-24 にん決定）。
+      // 名前と三本線（これまでのレッスン／マイページ／切り替え・もう1人登録／ホームへ。2026-09-24 にん決定。お問い合わせは 2026-10-16 にやめた）。
       // 1人だけのときは切り替えを出さず「もう1人登録する」だけ（決定 R）
       who = h('div', { class: 'who' }, [given() + 'さんとして操作中']);
     } else if (S.book && S.book.provisional && !(opts && opts.noWho)) {
@@ -148,6 +148,8 @@
     window.scrollTo(0, 0);
   }
   function msg(text, cls) { return h('div', { class: 'msg ' + (cls || 'info') }, [text]); }
+  /** お問い合わせの一行（2026-10-16 社長確認：お問い合わせの画面はやめ、相談は LINE のトークで。ボタンの代わりにこの一行を置く） */
+  function contactLine() { return h('p', { class: 'muted small' }, ['ご相談・お問い合わせは、この LINE のトークにメッセージをお送りください。']); }
   /** writing：予約の確定・キャンセルなど、書き込みの待ち画面のとき true */
   function busy(title, text, writing) { render(title, [h('div', { class: 'loading' }, [text || '処理しています…'])], [], { noWho: false }); slowHint(writing); }
   // 読み込みが長引いたら、止まっていないことを伝える（通信制限中のスマホでは最初の通信に 15 秒前後かかることがある）。
@@ -195,7 +197,6 @@
     if (S.page !== 'home') opts.push({ label: '⌂ ホームへ', onclick: goHome });
     opts.push({ label: 'これまでのレッスン', onclick: screenHistory });
     opts.push({ label: 'マイページ', onclick: screenMypage });
-    opts.push({ label: 'お問い合わせ', onclick: screenContact });
     if (S.linked.length > 1) opts.push({ label: 'お子さんを切り替える（いま：' + given() + 'さん）', onclick: showSwitcher });
     else opts.push({ label: '＋ もう1人登録する（ご兄弟で同じ LINE をお使いの場合）', onclick: function () { screenRegister(true); } });
     sheet('メニュー', opts);
@@ -219,7 +220,7 @@
       return api('init', { studentId: saved, page: PAGE });
     }).then(function (r) {
       if (!r.ok) { S.book = null; screenError(r.error); return; }
-      S.linked = r.linked; S.current = r.current; S.contactText = r.contactText; S.deadlineText = r.deadlineText;
+      S.linked = r.linked; S.current = r.current; S.deadlineText = r.deadlineText;
       S.registration = r.registration || { pending: [], rejected: false };
       if (S.current) { try { localStorage.setItem('beyond.student', S.current.id); } catch (e) { } }
       if (S.book && S.book.provisional) return settleProvisional(r.book);
@@ -264,7 +265,6 @@
   /** pre: init に同梱されていた最初の画面のデータ（あれば往復を省く） */
   function route(pre) {
     pre = pre || {};
-    if (PAGE === 'contact') return screenContact();
     if (!S.current) {
       if (S.registration && S.registration.pending.length) return screenPending(false);
       return screenRegister(false, S.registration && S.registration.rejected ? '前回のご登録はスクールで確認できませんでした。お手数ですが、お問い合わせください。' : '');
@@ -280,7 +280,7 @@
    * 休会中で予約できない、のように「この生徒だから」出るエラーで使う。ヘッダを消すと、兄弟に切り替える手段がなくなって行き止まりになる
    */
   function screenError(text, keepWho, title) {
-    render(title || 'ビヨンド', [msg(text, 'err'), h('button', { class: 'btn sub', onclick: screenContact }, ['お問い合わせ'])], [], { noWho: !keepWho });
+    render(title || 'ビヨンド', [msg(text, 'err'), contactLine()], [], { noWho: !keepWho });
   }
 
   // ---------- 初回登録（画面⓪。2026-10-01：フリガナで照合し、決まらなければスクールの確認待ち。docs/touroku-kae.md） ----------
@@ -321,7 +321,7 @@
       btn, note,
       h('p', { class: 'muted small' }, ['※スクールの名簿と照らし合わせます。確認が必要なときは、スクールで確認してからご利用いただけます。']),
       additional || replaces ? h('button', { class: 'btn sub', onclick: function () { S.book = null; route(); } }, ['← 登録せずに戻る']) : null,
-      h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
+      contactLine(),
     ], [], { noWho: !S.current });
   }
 
@@ -335,10 +335,9 @@
     render('ご入力内容をご確認ください', [
       mine ? h('div', { class: 'card' }, [h('div', { class: 'muted small' }, ['入力されたフリガナ']), h('div', { style: 'font-size:22px;font-weight:700;margin-top:4px' }, [mine.kana])]) : null,
       msg('まだご利用いただけません。フリガナが違っていれば「入力し直す」から直してください。合っていれば、スクールで確認します。確認ができしだい、このメニューからご利用いただけます。', 'info'),
-      h('p', { class: 'muted small' }, ['入力し直すと、前の入力は取り消されます。お急ぎの場合はお問い合わせください。']),
+      h('p', { class: 'muted small' }, ['入力し直すと、前の入力は取り消されます。お急ぎの場合は、この LINE のトークにメッセージをください。']),
       h('button', { class: 'btn', onclick: function () { screenRegister(additional, '', id); } }, ['入力し直す']),
       additional || S.current ? h('button', { class: 'btn sub', onclick: function () { S.book = null; route(); } }, ['戻る']) : null,
-      h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
     ], [], { noWho: !S.current });
   }
 
@@ -351,7 +350,7 @@
       h('h3', {}, [title || ('✓ ' + s.family + ' ' + s.given + ' さんとして登録しました')]),
       h('div', { class: 'muted' }, [(s.course || 'コース確認中') + '・' + s.store]),
       fx.length ? h('div', { style: 'margin-top:6px' }, [h('div', { class: 'muted small' }, ['固定のレッスン'])].concat(fx.map(function (f) { return h('div', {}, [fixedText(f)]); }))) : null,
-      h('p', { class: 'muted small', style: 'margin:8px 0 0' }, ['お名前や固定のレッスンが違う場合は、お手数ですがお問い合わせください。']),
+      h('p', { class: 'muted small', style: 'margin:8px 0 0' }, ['お名前や固定のレッスンが違う場合は、お手数ですが、この LINE のトークにメッセージをください。']),
     ]);
   }
 
@@ -365,7 +364,6 @@
       h('button', { class: 'btn', onclick: function () { S.book = null; route(); } }, ['つづける']),
       h('p', { class: 'muted small' }, ['ご兄弟で同じ LINE をお使いの場合']),
       h('button', { class: 'btn sub', onclick: function () { screenRegister(true); } }, ['もう1人登録する']),
-      h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
     ]);
   }
 
@@ -476,15 +474,7 @@
     });
   }
 
-  // ---------- お問い合わせ ----------
-  function screenContact() {
-    S.page = 'contact';
-    render('お問い合わせ', [
-      h('div', { class: 'card', html: (S.contactText || 'ご相談・お問い合わせは、このLINEのトークにメッセージをお送りください。').replace(/\n/g, '<br>') }),
-      h('button', { class: 'btn', onclick: function () { if (window.liff && liff.closeWindow) liff.closeWindow(); else history.back(); } }, ['トークに戻る']),
-      S.current ? h('button', { class: 'btn sub', onclick: goHome }, ['ホームへ']) : null,
-    ], [], { noWho: !S.current });
-  }
+  // （お問い合わせの画面は 2026-10-16 にやめた。相談は LINE のトークで。contactLine() の一行だけ残す）
 
   // ---------- マイページ（2026-10-01 にん。フェーズ1：表示だけ。電話番号の変更は 2026-10-09 にやめた） ----------
   function screenMypage() {
@@ -501,8 +491,7 @@
           row('コース', r.course || '確認中'),
           r.fixed.length ? h('div', { class: 'kv' }, [h('div', { class: 'muted small' }, ['固定のレッスン'])].concat(r.fixed.map(function (f) { return h('div', {}, [fixedText(f)]); }))) : null,
         ]),
-        h('p', { class: 'muted small' }, ['お名前の変更は、お問い合わせからご連絡ください。']),
-        h('button', { class: 'btn ghost', onclick: screenContact }, ['お問い合わせ']),
+        h('p', { class: 'muted small' }, ['お名前の変更は、この LINE のトークにメッセージでご連絡ください。']),
         h('button', { class: 'btn sub', onclick: goHome }, ['ホームへ']),
       ]);
     });
@@ -697,7 +686,7 @@
       var perDay = {};
       tnCandidates(input, dates).forEach(function (c) { perDay[c.date] = (perDay[c.date] || 0) + 1; });
       var days = {}, today = input.now.ymd, st = input.settings;
-      var closed = function (dt) { var dl = addDaysYmd(dt, -st.minLeadDays); return today > dl || (today === dl && input.now.minutes >= st.minLeadMinutes); };   // 最短受付（前日10:00）を過ぎた日
+      var closed = function (dt) { var dl = addDaysYmd(dt, -st.minLeadDays); return today > dl || (today === dl && input.now.minutes >= st.minLeadMinutes); };   // 最短受付（設定。前日 22:00）を過ぎた日
       dates.forEach(function (dt) { var n = perDay[dt] || 0; days[dt] = dt < today ? 'past' : closed(dt) ? (hasSlot[dt] ? 'closed' : 'none') : n >= 3 ? 'ok' : n > 0 ? 'few' : hasSlot[dt] ? 'full' : 'none'; });
       return { ok: true, month: month, days: days, count: tnCount(input), limit: bookingLimit(month, s) };
     },
@@ -1013,7 +1002,7 @@
 
   function screenConfirm() {
     var B = S.book;
-    var memo = h('textarea', { placeholder: '例：来月から木曜希望です' });
+    // 「ご要望・ご相談」の欄は 2026-10-16 の社長確認でやめた（書かれても対応できない。相談は LINE のトークで）
     var rows = B.rows.slice().sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start; });
     var lines = rows.map(function (r) { return h('div', { style: 'margin:3px 0' }, [h('div', { style: 'white-space:nowrap' }, [dispDate(r.date) + ' ' + hm(r.start) + '〜' + hm(r.end)]), h('div', { class: 'muted small' }, [r.teacherName + '先生・' + r.store])]); });
     // 翌月分は「先使い回数」で消費するので、「残り」ではなく「その月に使える回数」で見せる（今月分は「残り」）
@@ -1026,18 +1015,17 @@
       body.push(h('p', { class: 'muted small' }, ['回数は動きません（1回消えて1回入るため）。']));
     } else {
       body.push(h('div', { class: 'card' }, lines.concat([h('div', { class: 'row between', style: 'margin-top:8px' }, [h('span', { style: 'white-space:nowrap;flex:none' }, ['使う回数']), h('b', { style: 'text-align:right' }, [rows.length + '回（' + countText + '）'])])])));
-      body.push(h('div', { class: 'field' }, [h('label', {}, ['ご要望・ご相談（任意。運営に届きます。予約内容には反映されません）']), memo]));
     }
     body.push(msg('振替・キャンセルは' + S.deadlineText + 'までです。それ以降は回数を消化します。', 'warn'));
     render('予約内容の確認', body, [
-      h('button', { class: 'btn', onclick: function () { doConfirm(rows, memo.value); } }, [B.mode === '振替' ? '振替を確定する' : 'この内容で予約する']),
+      h('button', { class: 'btn', onclick: function () { doConfirm(rows); } }, [B.mode === '振替' ? '振替を確定する' : 'この内容で予約する']),
       h('button', { class: 'btn ghost', onclick: drawProposal }, ['← 提案に戻る']),
     ]);
   }
-  function doConfirm(rows, memoText) {
+  function doConfirm(rows) {
     var B = S.book;
     busy('予約内容の確認', '予約しています…（カレンダーに書き込むため少し時間がかかります）', true);
-    api('confirm', { studentId: S.current.id, rows: rows, memo: memoText, originalId: B.original ? B.original.id : '' }).then(function (r) {
+    api('confirm', { studentId: S.current.id, rows: rows, originalId: B.original ? B.original.id : '' }).then(function (r) {
       if (!r.ok) {
         var body = [msg(r.error, 'err')];
         var failed = (r.recheck && r.recheck.failed) || [];
