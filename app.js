@@ -217,8 +217,12 @@
     p.then(function () {
       console.log('[app] liff 準備 ' + (Date.now() - T0) + 'ms');
       logApi({ at: Date.now(), action: 'liff.init', bg: false, attempt: 1, fails: [], ms: Date.now() - T0, timing: null, error: '' });
+      // 運営側の人の LINE の紐付け（2026-10-19 B-4）：URL に ?staff=<合言葉> があれば、生徒の初回登録ではなく運営の紐付けをして終わる
+      var staffCode = staffCodeFromUrl();
+      if (staffCode) return api('staffLink', { code: staffCode }).then(function (r) { screenStaffLinked(r); return null; });
       return api('init', { studentId: saved, page: PAGE });
     }).then(function (r) {
+      if (r === null) return;   // 運営の紐付け（画面は出し済み）
       if (!r.ok) { S.book = null; screenError(r.error); return; }
       S.linked = r.linked; S.current = r.current; S.deadlineText = r.deadlineText;
       S.registration = r.registration || { pending: [], rejected: false };
@@ -281,6 +285,19 @@
    */
   function screenError(text, keepWho, title) {
     render(title || 'ビヨンド', [msg(text, 'err'), contactLine()], [], { noWho: !keepWho });
+  }
+
+  /** URL の ?staff=<合言葉>（運営の LINE の紐付け）。LIFF は liff.line.me の URL のクエリを liff.state に包んで渡すことがあるので、両方を見る */
+  function staffCodeFromUrl() {
+    var q = new URLSearchParams(location.search), c = q.get('staff') || '';
+    if (!c && q.get('liff.state')) { try { c = new URLSearchParams(String(q.get('liff.state')).replace(/^[^?]*\?/, '')).get('staff') || ''; } catch (e) { } }
+    return /^\d{6}$/.test(c) ? c : '';
+  }
+  function screenStaffLinked(r) {
+    render('運営の LINE の紐付け', [
+      r.ok ? msg('✓ ' + r.name + ' さんの LINE として紐付けました。生徒さんの初回登録で確認待ちが出たとき、この LINE にお知らせが届きます。', 'ok') : msg(r.error || '紐付けできませんでした', 'err'),
+      h('button', { class: 'btn', onclick: function () { if (window.liff && liff.closeWindow) liff.closeWindow(); else history.back(); } }, ['閉じる']),
+    ], [], { noWho: true });
   }
 
   // ---------- 初回登録（画面⓪。2026-10-01：フリガナで照合し、決まらなければスクールの確認待ち。docs/touroku-kae.md） ----------
