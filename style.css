@@ -132,3 +132,18 @@ h3.sec { margin: 18px 0 8px; font-size: 19px; }
 .kind.k-実施 { background: var(--ok-bg); color: var(--ok); }
 .kind.k-期限後欠席 { background: var(--err-bg); color: var(--err); }
 .kind.k-休講 { background: var(--warn-bg); color: var(--warn); }
+
+/* 2026-10-21 B-1・B-2：1 回ずつの予約（候補カード・時間帯・● 予約済み） */
+.cal .d.mine { color: #c0c6cd; }
+.cal .d.mine .mk { color: var(--blue); }
+.bands { margin-top: 12px; }
+.sec-title { font-weight: 700; margin: 6px 0 2px; }
+.sec-title .muted { font-weight: 400; margin-left: 4px; }
+.chip.band .sub { display: block; font-size: 10px; opacity: .8; line-height: 1.1; }
+.chip.band { text-align: center; padding: 5px 12px; }
+.card.cand { cursor: pointer; border-width: 1.5px; }
+.card.cand.sel { box-shadow: 0 0 0 1px var(--blue) inset; }
+.card.cand .when { font-weight: 700; font-size: 17px; }
+.card.cand .why { font-size: 12px; color: var(--blue); }
+.card.cand .online-opt { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--ink); cursor: pointer; }
+.card.cand .online-opt input { width: 18px; height: 18px; }

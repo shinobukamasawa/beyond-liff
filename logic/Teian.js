@@ -7,8 +7,8 @@
  *              ngWeekdays:[], timebands:[], status, requestKind, applyMonth }
  *   teacherIds: [選んだ先生ID]
  *   teachers: [{ id, active, courses:[], stores:[] }]
- *   wishDates: ['yyyy-MM-dd']      画面③でタップした日
- *   wishBands: ['午前'|'午後'|'夕方以降']  空＝制限なし
+ *   wishDates: ['yyyy-MM-dd']      画面③でタップした日（2026-10-21 から 1 日だけ。10章）
+ *   wishBands: ['午前'|'午後'|'夕方'|'夜']  空＝制限なし（2026-10-21 から 4 区分：〜12:00／12:00〜16:00／16:00〜18:00／18:00〜。1〜2 つ）
  *   targetMonth: 'yyyy-MM'
  *   slots: [{ date, teacherId, store, start, end }]          枠（分）。store が空＝指定なし（担当店舗のどこでも）。その枠の候補の店舗は生徒の店舗
  *   bookings: [{ id, studentId, teacherId, date, start, end, state, store }]
@@ -30,7 +30,8 @@ function tnDiffDays_(a, b) { return Math.abs(Math.round((tnDate_(a) - tnDate_(b)
 function tnWeekday_(ymd) { return TN_WEEK_[tnDate_(ymd).getDay()]; }
 /** 月曜始まりの週のキー（その週の月曜の日付） */
 function tnWeekKey_(ymd) { var d = tnDate_(ymd); var back = (d.getDay() + 6) % 7; return tnAddDays_(ymd, -back); }
-function tnBand_(start) { return start < 720 ? '午前' : start < 1020 ? '午後' : '夕方以降'; }
+/** 時間帯の区分（決定 B。2026-10-21 に 4 区分へ：境界 12:00・16:00・18:00。10/16 までは 12:00・17:00 の 3 区分） */
+function tnBand_(start) { return start < 720 ? '午前' : start < 960 ? '午後' : start < 1080 ? '夕方' : '夜'; }
 function tnOverlap_(aS, aE, bS, bE) { return aS < bE && bS < aE; }
 function tnMonthAdd_(ym, n) { var p = ym.split('-'); var d = new Date(Number(p[0]), Number(p[1]) - 1 + n, 1); return d.getFullYear() + '-' + tnP2_(d.getMonth() + 1); }
 function tnShort_(ymd) { var p = ymd.split('-'); return Number(p[1]) + '/' + Number(p[2]); }
@@ -149,12 +150,13 @@ function tnRejectBasic_(input, c) {
   return null;
 }
 
-/** 3.4 の 4〜6：曜日NG、名簿の希望時間帯、画面の時間帯 */
+/**
+ * 3.4 の 6：画面の時間帯。
+ * 3.4 の 4・5（名簿の曜日NG・希望時間帯）は 2026-10-29 に判定から外した：10/16 に運営の画面から外して入れられなくなった列で、
+ * 古い値（旧 3 区分の「夕方以降」など）が残っていると 4 区分の判定で候補を全部弾いてしまうため
+ */
 function tnRejectPrefs_(input, c) {
-  var s = input.student;
-  if ((s.ngWeekdays || []).indexOf(tnWeekday_(c.date)) >= 0) return '曜日NG';
   var band = tnBand_(c.start);
-  if ((s.timebands || []).length && s.timebands.indexOf(band) < 0) return '名簿の希望時間帯';
   if ((input.wishBands || []).length && input.wishBands.indexOf(band) < 0) return '時間帯の希望';
   return null;
 }
@@ -217,142 +219,45 @@ function tnCompare_(a, b, settings, useDistance) {
   return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
 }
 
-function tnConflictsSelected_(c, selected) {
-  return selected.some(function (r) {
-    return r.date === c.date || (r.teacherId === c.teacherId && r.date === c.date && tnOverlap_(c.start, c.end, r.start, r.end));
-  });
-}
-
+/** 4.5：理由の一言。2026-10-21 から 1 日の候補なので「同じ週から」「早い日」は出さない（当てはまらなければ空） */
 function tnReason_(ev, weekAlreadyUsed) {
   if (ev.last >= 1) return '先月と同じ曜日・時間';
   if (ev.connBooking === 2) return '先生の空き時間がつながります';
   if (ev.connBooking === 1) return '前後の予約とつながります';
-  if (weekAlreadyUsed) return '希望日が集中しているため同じ週から';
-  return '希望日の中で早い日';
+  return '';
 }
 
 /**
- * 4.4：候補から need 件を選ぶ。selected（選択済み）に足していく。
- * opts: { useDistance, reasonFn(c, ev, weekAlreadyUsed) }
+ * 10章（2026-10-21 社長確定）：1 日・時間帯 1〜2 つの候補を、おすすめ順に limit 件まで出す。生徒はこの中から 1 件を選ぶ。
+ * 並びは 4.3（つながり度・先月同枠・移動なし・早さ）。選択済みは空（先生の既存予約だけを予定とする）。
+ * 間引き（Q-M にん承認）：同じ先生では、開始がコースの長さ以上離れた候補だけを採る（15:00 を採ったら 15:15・15:30 は飛ばし、15:45 は採る）。
+ * 先生が 2 人以上なら、先生ごとの最良を先に 1 件ずつ出してから残りを並べる。limit に満たなければ、飛ばした候補を順に足す。
+ * 戻り値：[{ date, teacherId, store, start, end, slotStart, slotEnd, reason }]（おすすめ順）
  */
-function tnPick_(input, cands, need, selected, opts) {
-  var st = input.settings;
-  var weekCount = {};
-  selected.forEach(function (r) { var w = tnWeekKey_(r.date); weekCount[w] = (weekCount[w] || 0) + 1; });
-  var k = st.spreadWeekly ? 0 : 99;
-  var picked = [];
-  while (picked.length < need) {
-    var avail = cands.filter(function (c) {
-      return !tnConflictsSelected_(c, selected) && (weekCount[tnWeekKey_(c.date)] || 0) <= k;
-    });
-    if (!avail.length) { k++; if (k > 31) break; continue; }
-    avail.forEach(function (c) { c.ev = tnEvaluate_(input, c, selected); });
-    avail.sort(function (a, b) { return tnCompare_(a, b, st, opts && opts.useDistance); });
-    var best = avail[0];
-    var w = tnWeekKey_(best.date);
-    var used = (weekCount[w] || 0) > 0;
-    var row = {
-      date: best.date, teacherId: best.teacherId, store: best.store, start: best.start, end: best.end,
-      slotStart: best.slotStart, slotEnd: best.slotEnd,
-      reason: (opts && opts.reasonFn) ? opts.reasonFn(best, best.ev, used) : tnReason_(best.ev, used),
-      fromWish: !(opts && opts.useDistance), changed: false,
-    };
-    selected.push(row); picked.push(row);
-    weekCount[w] = (weekCount[w] || 0) + 1;
-  }
-  return picked;
-}
-
-/** 提案の本体（1〜5章） */
-function tnPropose(input) {
-  var pre = tnPrecheck(input);
-  if (pre) return { ok: false, code: pre.code, message: pre.message };
-  var n = tnCount(input);
-  var wish = input.wishDates.slice().sort();
-
-  var C = tnCandidates(input, wish);
-  var selected = [];
-  tnPick_(input, C, n, selected, null);
-
-  // 5章：足りない分は希望日以外から
-  if (selected.length < n) {
-    var hasCand = {};
-    C.forEach(function (c) { hasCand[c.date] = true; });
-    var days = [];
-    var first = input.targetMonth + '-01';
-    for (var d = first; d.substring(0, 7) === input.targetMonth; d = tnAddDays_(d, 1)) {
-      if (wish.indexOf(d) < 0 && d >= input.now.ymd) days.push(d);
-    }
-    var dist = {};
-    days.forEach(function (d) { dist[d] = Math.min.apply(null, wish.map(function (w) { return tnDiffDays_(d, w); })); });
-    var near = days.filter(function (d) { return dist[d] <= 3; });
-    var C2 = tnCandidates(input, near);
-    if (!C2.length) C2 = tnCandidates(input, days);
-    C2.forEach(function (c) { c.distance = dist[c.date]; });
-    tnPick_(input, C2, n - selected.length, selected, {
-      useDistance: true,
-      reasonFn: function (c) {
-        var w = tnWeekKey_(c.date);
-        var full = wish.filter(function (x) { return tnWeekKey_(x) === w && !hasCand[x]; });
-        return '希望日以外からのおすすめ' + (full.length ? '（' + full.map(tnShort_).join('・') + 'は満席のため）' : '');
-      },
-    });
-  }
-
-  if (!selected.length) return { ok: false, code: 'empty', message: '選んだ日に空きがありません' };
-  selected.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start; });
-  var usedDates = selected.map(function (r) { return r.date; });
-  return {
-    ok: true, n: n, rows: selected,
-    unusedWishDates: wish.filter(function (d) { return usedDates.indexOf(d) < 0; }),
-    short: selected.length < n,
-    message: selected.length < n ? '希望日に空きが少ないため ' + selected.length + ' 回分の提案です。希望日を増やすと提案が増えます' : '',
+function tnTopCandidates(input, date, bands, limit) {
+  var inp = {};
+  for (var k in input) inp[k] = input[k];
+  inp.wishDates = [date]; inp.wishBands = bands || [];
+  var n = limit || 6;
+  var cands = tnCandidates(inp, [date]);
+  cands.forEach(function (c) { c.ev = tnEvaluate_(inp, c, []); });
+  cands.sort(function (a, b) { return tnCompare_(a, b, inp.settings, false); });
+  var gap = inp.student.courseMinutes || 45;
+  var picked = [], skipped = [], seen = {};
+  var fits = function (c) {
+    return picked.every(function (p) { return p.teacherId !== c.teacherId || Math.abs(p.start - c.start) >= gap; });
   };
-}
-
-/** 6.1：この日の別の時間（rows[index] と同じ日・同じ先生） */
-function tnAltTimes(input, rows, index) {
-  var cur = rows[index];
-  var others = rows.filter(function (_, i) { return i !== index; });
-  return tnCandidates(input, [cur.date], [cur.teacherId])
-    .filter(function (c) { return c.start !== cur.start && !tnOverlapSelected_(c, others); })
-    .sort(function (a, b) { return a.start - b.start; });
-}
-
-function tnOverlapSelected_(c, others) {
-  return others.some(function (r) { return r.teacherId === c.teacherId && r.date === c.date && tnOverlap_(c.start, c.end, r.start, r.end); });
-}
-
-/** 6.2：別の候補日と入れ替える。見つからなければ null */
-function tnSwapDate(input, rows, index, newDate) {
-  var others = rows.filter(function (_, i) { return i !== index; });
-  if (others.some(function (r) { return r.date === newDate; })) return null;
-  var cands = tnCandidates(input, [newDate]).filter(function (c) { return !tnOverlapSelected_(c, others); });
-  if (!cands.length) return null;
-  cands.forEach(function (c) { c.ev = tnEvaluate_(input, c, others); });
-  cands.sort(function (a, b) { return tnCompare_(a, b, input.settings, false); });
-  return tnRowFrom_(cands[0]);
-}
-
-/** 6.3：別の先生で。先生ごとの最良1件 */
-function tnAltTeachers(input, rows, index) {
-  var cur = rows[index];
-  var others = rows.filter(function (_, i) { return i !== index; });
-  var out = [];
-  tnEligibleTeachers_(input).forEach(function (t) {
-    if (t.id === cur.teacherId) return;
-    var cands = tnCandidates(input, [cur.date], [t.id]).filter(function (c) { return !tnOverlapSelected_(c, others); });
-    if (!cands.length) return;
-    cands.forEach(function (c) { c.ev = tnEvaluate_(input, c, others); });
-    cands.sort(function (a, b) { return tnCompare_(a, b, input.settings, false); });
-    out.push(tnRowFrom_(cands[0]));
+  // 先生ごとの最良を先に（並びの先頭から、先生ごとに最初の 1 件）
+  cands.forEach(function (c) { if (picked.length < n && !seen[c.teacherId]) { seen[c.teacherId] = true; picked.push(c); } });
+  cands.forEach(function (c) {
+    if (picked.indexOf(c) >= 0) return;
+    if (picked.length < n && fits(c)) picked.push(c); else skipped.push(c);
   });
-  return out;
-}
-
-function tnRowFrom_(c) {
-  return { date: c.date, teacherId: c.teacherId, store: c.store, start: c.start, end: c.end, slotStart: c.slotStart, slotEnd: c.slotEnd,
-    reason: tnReason_(c.ev, false), fromWish: true, changed: true };
+  skipped.forEach(function (c) { if (picked.length < n) picked.push(c); });
+  return picked.map(function (c) {
+    return { date: c.date, teacherId: c.teacherId, store: c.store, start: c.start, end: c.end, slotStart: c.slotStart, slotEnd: c.slotEnd,
+      reason: tnReason_(c.ev, false), fromWish: true, changed: false };
+  });
 }
 
 /**
@@ -375,7 +280,6 @@ function tnRecheck(input, rows) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    tnPrecheck: tnPrecheck, tnCount: tnCount, tnCandidates: tnCandidates, tnPropose: tnPropose,
-    tnAltTimes: tnAltTimes, tnSwapDate: tnSwapDate, tnAltTeachers: tnAltTeachers, tnRecheck: tnRecheck,
+    tnPrecheck: tnPrecheck, tnCount: tnCount, tnCandidates: tnCandidates, tnTopCandidates: tnTopCandidates, tnRecheck: tnRecheck, tnBand_: tnBand_,
   };
 }
